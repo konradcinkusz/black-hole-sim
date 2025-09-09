@@ -1,0 +1,450 @@
+\documentclass[aspectratio=169]{beamer}
+
+% ======================== Theme & Links ===========================
+% Optional: customize sidebar appearance before loading the theme
+\newcommand{\SidebarWidth}{3.4cm}   % default width
+\newcommand{\SidebarFont}{\scriptsize} % default font size
+\usetheme{deepdiveinto}
+\newcommand{\RepoURL}{https://github.com/konradcinkusz/REPO_PLACEHOLDER}
+\newcommand{\BookURL}{https://github.com/konradcinkusz/BOOK_PLACEHOLDER}
+
+\title[Deep Dive: Black Hole in C\#]{Deep Dive Into Implementation of Rendering a Black Hole in C\#}
+\subtitle{From GR Equations to Pixels -- A File-by-File Build}
+\author[\href{https://github.com/konradcinkusz}{dev\_insight \,|\, github.com/konradcinkusz}]{Konrad Cinkusz (\texttt{dev\_insight})}
+\institute{Numerical Methods \& Graphics Series}
+\date{\today}
+
+% ======================== Packages ================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{hyperref}
+\usepackage{fontawesome5}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,calc,shapes.misc}
+\usepackage{minted}
+
+\hypersetup{colorlinks=true, urlcolor=white}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{C}{>{\centering\arraybackslash}m{1.9cm}}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\point}[1]{\textbf{Point \##1}}
+\newcommand{\step}[1]{\textbf{Implementation Step \##1}}
+
+\titlegraphic{%
+  {\footnotesize
+    \faGithub\ \href{\RepoURL}{\textcolor{mbSecondary}{Presentation \& code (GitHub)}}\quad\textbullet\quad
+    \href{\BookURL}{\textcolor{mbSecondary}{Book draft "Deep Dive Into" -- collaborate via PRs}}%
+  }%
+}
+
+% ==================== Safe helpers for each frame =================
+% Use inside every frame, first thing.
+\newcommand{\ProgressStep}[1]{\progressstep{#1}}
+\newcommand{\ThisFrameTitle}[1]{\frametitle{#1}}
+
+% ======================== Document =================================
+\begin{document}
+
+% ---------------- Title ----------------
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{}
+  \titlepage
+\end{frame}
+
+% ---------------- Agenda ----------------
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{What We Are Going To Do}
+  \begin{itemize}
+    \item Build a black hole ray tracer in C\# in the exact order of file creation.
+    \item Each step includes a Theory + Stage slide followed by Implementation.
+    \item Physics: Schwarzschild (equatorial plane); photons as null geodesics in Hamiltonian form.
+    \item Numerics: compact RK4, allocation-free state ops.
+    \item Output: PPM image; console progress bar.
+  \end{itemize}
+\end{frame}
+
+% ---------------- Global Theory ----------------
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{Theory Background: Black Hole Raytracing}
+  \textbf{Goal:} build a tiny GR (general relativity) playground in C\# to render a black hole with a thin disk.\\[0.6em]
+  \textbf{Setup (Schwarzschild, equatorial plane):}
+  \begin{itemize}
+    \item Units: $G=c=1$, $M=1 \Rightarrow r_s=2M=2$.
+    \item Metric: $ds^2 = -\!\left(1-\frac{2M}{r}\right)dt^2 + \left(1-\frac{2M}{r}\right)^{-1}dr^2 + r^2\,d\varphi^2$.
+    \item Hamiltonian (null): $H=\tfrac12\,g^{\mu\nu}p_\mu p_\nu=0$.
+    \item Hamilton's equations: $\dot{t}=g^{tt}p_t,\ \dot{r}=g^{rr}p_r,\ \dot{\varphi}=g^{\varphi\varphi}p_\varphi$, etc.
+  \end{itemize}
+  \textbf{Rendering:} camera at $r_0=50M$; map pixels $\to b$; RK4 until capture/disk/escape.
+\end{frame}
+
+% ================= OPTIONAL THEORY DEEP DIVE =================
+
+% --- [Optional] Goal ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Theory Goal: What Are We Building?}
+  \textbf{Goal:} Build a tiny \emph{general relativity (GR)} playground in C\# that turns equations into pixels.\\[0.6em]
+  \begin{itemize}
+    \item Model \textbf{photon trajectories} (null geodesics) near a Schwarzschild black hole.
+    \item Use \textbf{Hamiltonian mechanics} to derive first-order evolution equations.
+    \item Numerically integrate with the \textbf{Runge–Kutta 4th order (RK4)} method.
+    \item Render a \textbf{thin accretion disk} around the black hole to an image (PPM).
+  \end{itemize}
+  \textbf{Why Hamiltonian?} Compact equations, conserved quantities visible (\(E, L\)), and well-suited to RK4.
+\end{frame}
+
+% --- [Optional] Units & Scaling ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Setup I: Units \& Scaling}
+  \begin{itemize}
+    \item \textbf{Geometrized units:} set \(G=c=1\). Time, length, and mass share the same unit.
+    \item \textbf{Mass normalization:} choose \(M=1\) for the black hole.
+    \item \textbf{Event horizon:} \(r_s = 2M = 2\).
+    \item \textbf{Numerical benefit:} Fewer constants; equations become dimensionless and stable to scale.
+  \end{itemize}
+  \vspace{0.4em}
+  \textbf{Interpretation:} One code unit of radius equals one mass unit; e.g., the camera at \(r_0=50M\Rightarrow r_0=50\).
+\end{frame}
+
+% --- [Optional] Schwarzschild Metric ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Setup II: Schwarzschild Metric (Equatorial Plane)}
+  \textbf{Metric (at \(\theta=\pi/2\)):}
+  \[
+    ds^2
+    = -\!\left(1-\frac{2M}{r}\right) dt^2
+    + \left(1-\frac{2M}{r}\right)^{-1} dr^2
+    + r^2 d\varphi^2 .
+  \]
+  \textbf{Physical meaning:}
+  \begin{itemize}
+    \item \(g_{tt}\): gravitational time dilation; slows clocks near \(r=2M\).
+    \item \(g_{rr}\): radial stretching; diverges at the horizon in these coordinates.
+    \item \(r^2 d\varphi^2\): azimuthal geometry (circumference).
+  \end{itemize}
+  \textbf{Inverse metric:}
+  \[
+    g^{tt}=-\frac{1}{1-2M/r},\quad
+    g^{rr}=1-\frac{2M}{r},\quad
+    g^{\varphi\varphi}=\frac{1}{r^2}.
+  \]
+\end{frame}
+
+% --- [Optional] Hamiltonian for Photons ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Hamiltonian for Photons (Null Geodesics)}
+  \textbf{Null condition via Hamiltonian:}
+  \[
+    H=\tfrac12\,g^{\mu\nu}p_\mu p_\nu = 0
+  \]
+  with covariant momenta \(p_\mu\).\\[0.4em]
+  \textbf{Conserved quantities (stationary, axisymmetric):}
+  \[
+    p_t = -E \quad (\text{energy}),\qquad
+    p_\varphi = L \quad (\text{angular momentum}).
+  \]
+  \textbf{Impact parameter:} \(b \equiv \dfrac{L}{E}\) (we take \(E=1\Rightarrow L=b\)).\\[0.4em]
+  \textbf{Photon sphere intuition:} Unstable circular photon orbits at \(r=3M\) strongly bend light and shape the bright ring.
+\end{frame}
+
+% --- [Optional] Hamilton's Equations ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Hamilton's Equations of Motion}
+  \textbf{Canonical evolution:} \(\dot{x}^\mu=\partial H/\partial p_\mu,\ \dot{p}_\mu=-\partial H/\partial x^\mu\).\\[0.4em]
+  \textbf{In our coordinates \((t,r,\varphi)\):}
+  \[
+    \dot{t}=g^{tt}p_t,\qquad
+    \dot{r}=g^{rr}p_r,\qquad
+    \dot{\varphi}=g^{\varphi\varphi}p_\varphi,
+  \]
+  \[
+    \dot{p}_t=0,\quad \dot{p}_\varphi=0,\quad
+    \dot{p}_r=-\tfrac12\,\partial_r(g^{\alpha\beta})\,p_\alpha p_\beta.
+  \]
+  \textbf{Radial derivatives (needed for \(\dot{p}_r\)):}
+  \[
+    \partial_r g^{tt}=-\frac{2M}{r^2(1-2M/r)^2},\quad
+    \partial_r g^{rr}=\frac{2M}{r^2},\quad
+    \partial_r g^{\varphi\varphi}=-\frac{2}{r^3}.
+  \]
+  \textbf{Numerical invariant:} \(H\approx 0\) throughout integration (good diagnostic).
+\end{frame}
+
+% --- [Optional] Numerical Integration (RK4) ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Numerical Integration: Runge--Kutta 4th Order (RK4)}
+  \textbf{Why RK4?}
+  \begin{itemize}
+    \item Good accuracy vs. cost for smooth geodesic flows.
+    \item Single quality knob: step size \(h\).
+  \end{itemize}
+  \textbf{Update (conceptual):}
+  \[
+    y_{n+1}=y_n+\frac{h}{6}\big(k_1+2k_2+2k_3+k_4\big),
+  \]
+  where \(k_1=f(y_n)\), \(k_2=f(y_n+\tfrac{h}{2}k_1)\), \(k_3=f(y_n+\tfrac{h}{2}k_2)\), \(k_4=f(y_n+hk_3)\).\\[0.4em]
+  \textbf{Practice tips:}
+  \begin{itemize}
+    \item Smaller \(h\) \(\Rightarrow\) higher fidelity near \(r\sim 3M\) (photon sphere), but slower.
+    \item Monitor \(H\) to detect drift; clamp steps near horizon if needed.
+  \end{itemize}
+\end{frame}
+
+% --- [Optional] Rendering Strategy ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Rendering Strategy: From Rays to Pixels}
+  \textbf{Camera:} place at \(r_0=50M\), pointing toward the hole.\\[0.4em]
+  \textbf{Pixel $\rightarrow$ ray:}
+  \begin{itemize}
+    \item Map image coordinates to impact parameter \(b=L/E\).
+    \item Set \(E=1\Rightarrow p_t=-1\), \(p_\varphi=b\).
+    \item Solve \(H=0\) for \(p_r(r_0)\) and choose inward branch.
+  \end{itemize}
+  \textbf{Stopping conditions:}
+  \begin{itemize}
+    \item \emph{Capture:} \(r \le 2M\) \(\Rightarrow\) black.
+    \item \emph{Disk hit:} \(R_{\text{in}} \le r \le R_{\text{out}}\) \(\Rightarrow\) bright (with simple beaming).
+    \item \emph{Escape:} \(r \gg r_0\) \(\Rightarrow\) background.
+  \end{itemize}
+  \textbf{Shading (simple):} boost brightness on approaching side (Doppler/beaming proxy).
+\end{frame}
+
+% --- [Optional] Big Picture ---
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{[Optional] Big Picture: Theory $\rightarrow$ Image Pipeline}
+  \begin{itemize}
+    \item \textbf{Geometry:} Schwarzschild metric defines spacetime (\(g_{\mu\nu}\), \(g^{\mu\nu}\)).
+    \item \textbf{Dynamics:} Hamiltonian \(H=\tfrac12 g^{\mu\nu}p_\mu p_\nu=0\) gives first-order ODEs.
+    \item \textbf{Numerics:} Integrate ODEs with RK4, monitor \(H\approx 0\).
+    \item \textbf{Imaging:} Map pixel \(\to b\), integrate, classify outcome (capture/disk/escape), write RGB.
+  \end{itemize}
+  \vspace{0.4em}
+  \textbf{Extensible:} Swap metric (e.g., Kerr), improve shading (redshift/Doppler), add adaptive stepping.
+\end{frame}
+
+% ======================== Step 0 ==================================
+\section{Bootstrap}
+\begin{frame}
+  \ProgressStep{0}\ThisFrameTitle{Step 0 -- Bootstrap the Solution}
+  \textbf{What \& Why}
+  \begin{itemize}
+    \item Create .NET console scaffold and folders (\code{Physics}, \code{Math}, \code{Rendering}, \code{UI}).
+    \item Clean separation keeps physics, numerics, IO decoupled.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{0}\ThisFrameTitle{Step 0 -- Code (pseudo): Bootstrap}
+\begin{minted}[fontsize=\scriptsize]{text}
+dotnet new console -n BlackHoleSim
+mkdir Physics Math Rendering UI
+\end{minted}
+\begin{minted}[fontsize=\scriptsize]{xml}
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
+\end{minted}
+\end{frame}
+
+% ======================== Step 1 ==================================
+\section{State}
+\begin{frame}
+  \ProgressStep{1}\ThisFrameTitle{Step 1 -- Theory: Photon State Vector}
+  \textbf{Why a State struct?}
+  \begin{itemize}
+    \item Phase space is $6$-D: $(t,r,\varphi)$ and $(p_t,p_r,p_\varphi)$.
+    \item RK4 needs vector-like ops; value semantics avoid GC pressure.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{1}\ThisFrameTitle{Step 1 -- Physics/State.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+struct State { t r φ pt pr pφ }
+AddScaled(State k, a)
++(a,b) and scalar*(a)
+\end{minted}
+\end{frame}
+
+% ======================== Step 2 ==================================
+\section{RK4}
+\begin{frame}
+  \ProgressStep{2}\ThisFrameTitle{Step 2 -- Theory: RK4 Integrator}
+  \textbf{Why RK4?} Stable + accurate for geodesics; one knob (step h) for quality vs speed.
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{2}\ThisFrameTitle{Step 2 -- Math/RK4.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+Step(f,y,h):
+  k1=f(y)
+  k2=f(y + h/2*k1)
+  k3=f(y + h/2*k2)
+  k4=f(y + h*k3)
+  return y + h/6*(k1 + 2k2 + 2k3 + k4)
+\end{minted}
+\end{frame}
+
+% ======================== Step 3 ==================================
+\section{IMetric}
+\begin{frame}
+  \ProgressStep{3}\ThisFrameTitle{Step 3 -- Theory: Geometry Abstraction (IMetric)}
+  \textbf{Why an interface?} Swap metrics (Schwarzschild -> Kerr) without touching the renderer.
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{3}\ThisFrameTitle{Step 3 -- Physics/IMetric.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+interface IMetric {
+  M, rs; gttInv, grrInv, gppInv;
+  derivatives; H(State); RHS(State);
+}
+\end{minted}
+\end{frame}
+
+% ======================== Step 4 ==================================
+\section{Schwarzschild Metric}
+\begin{frame}
+  \ProgressStep{4}\ThisFrameTitle{Step 4 -- Theory: Schwarzschild Metric}
+  Inverses: $g^{tt}=-(1-2M/r)^{-1}$, $g^{rr}=(1-2M/r)$, $g^{\varphi\varphi}=1/r^2$.
+  \[
+    \frac{dx^\mu}{d\lambda}=g^{\mu\nu}p_\nu,\quad
+    \frac{dp_r}{d\lambda}=-\tfrac12\partial_r g^{\alpha\beta}p_\alpha p_\beta.
+  \]
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{4}\ThisFrameTitle{Step 4 -- Physics/Schwarzschild.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+class Schwarzschild : IMetric {
+  gttInv(r), grrInv(r), gppInv(r)
+  dg/dr ...
+  H(State s) -> 1/2 g^{μν} p_μ p_ν
+  RHS(State s) -> (dt,dr,dφ,dpt,dpr,dpφ)
+}
+\end{minted}
+\end{frame}
+
+% ======================== Step 5 ==================================
+\section{Raytracer}
+\begin{frame}
+  \ProgressStep{5}\ThisFrameTitle{Step 5 -- Theory: Raytracing the Photon}
+  \textbf{Flow}
+  \begin{itemize}
+    \item Fix $E=1$, $L=b$; solve $H=0$ for $p_r(r_0)$, choose inward branch.
+    \item Integrate with RK4; stop on horizon / disk hit / escape.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{5}\ThisFrameTitle{Step 5 -- Rendering/Raytracer.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+Trace(b):
+  set pt=-1, pφ=b, r=r_cam
+  solve H=0 -> pr<0
+  loop up to MaxSteps:
+    if r < rs -> black
+    if Rin<=r<=Rout -> mark hit + compute simple beaming
+    RK4 step using metric.RHS
+  return shaded color (disk or background)
+\end{minted}
+\end{frame}
+
+% ======================== Step 6 ==================================
+\section{PPM Writer}
+\begin{frame}
+  \ProgressStep{6}\ThisFrameTitle{Step 6 -- Theory: PPM Writer (P3)}
+  Dependency-free; quickest path from math to pixels.
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{6}\ThisFrameTitle{Step 6 -- Rendering/PPMWriter.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+Render(path,W,H,shader(i,j,W,H)):
+  write header P3 / WxH / 255
+  for each row j:
+    for each column i:
+      (r,g,b)=shader(...)
+      write triplet
+\end{minted}
+\end{frame}
+
+% ======================== Step 7 ==================================
+\section{Progress}
+\begin{frame}
+  \ProgressStep{7}\ThisFrameTitle{Step 7 -- Theory: Console Progress Bar}
+  Show percent done, ETA, rows/s (throttled ~30 Hz).
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{7}\ThisFrameTitle{Step 7 -- UI/ConsoleProgressBar.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+Update(currentRow):
+  percent = currentRow/total
+  speed = currentRow / elapsed
+  eta = (total-currentRow)/speed
+  draw [#####.....] %  ETA  rows/s
+\end{minted}
+\end{frame}
+
+% ======================== Step 8 ==================================
+\section{Program}
+\begin{frame}
+  \ProgressStep{8}\ThisFrameTitle{Step 8 -- Theory: Program.cs (Glue)}
+  Map pixel $(i,j)$ -> impact parameter $b$; call \code{Trace(b)}; stream to PPM.
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{8}\ThisFrameTitle{Step 8 -- Program.cs (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+Parse CLI (--width --height --bmax)
+for each pixel:
+  (u,v) in [-1,1]; b = v*bMax + 0.15*u
+  color = tracer.Trace(b); write to PPM
+\end{minted}
+\end{frame}
+
+% ==================== Optional / Invariants ======================
+\section{Invariant Check}
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{(Optional) Invariant Check \& Tuning}
+  Occasionally check $H \approx 0$ and expose knobs (step size, max steps).
+\end{frame}
+
+\begin{frame}[fragile]
+  \ProgressStep{-1}\ThisFrameTitle{Optional Code: Invariant Check \& Tuning (pseudo)}
+\begin{minted}[fontsize=\scriptsize]{text}
+if (iteration % 400 == 0) print H(state)
+parameters: step=0.02, maxSteps=20000 (promote to fields for quick tuning)
+\end{minted}
+\end{frame}
+
+% ---------------- Wrap-up ----------------
+\section{Summary}
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{Summary \& Takeaways}
+  \begin{itemize}
+    \item Pipeline: \textbf{State} -> \textbf{RK4} -> \textbf{Metric} -> \textbf{Raytracer} -> \textbf{PPM} -> \textbf{Progress} -> \textbf{Main}.
+    \item Ready to extend: Kerr metric, GPU, PNG writer.
+  \end{itemize}
+\end{frame}
+
+% ---------------- Thank you ----------------
+\begin{frame}
+  \ProgressStep{-1}\ThisFrameTitle{}
+  \begin{center}
+    \LARGE Thank you!\\[2mm]
+    \large Questions?
+  \end{center}
+\end{frame}
+
+\end{document}
