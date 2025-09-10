@@ -1,6 +1,12 @@
-﻿# BlackHoleSim
+# CSharp FlashCards 2025
 
-A C# implementation of a Schwarzschild black hole raytracer.  
+[![PDF download](https://img.shields.io/badge/PDF-download-blue)](https://github.com/konradcinkusz/csharp-flashcards/releases/latest/download/CSharp_FlashCards.pdf)
+[![CI](https://github.com/konradcinkusz/csharp-flashcards/actions/workflows/ci.yml/badge.svg)](https://github.com/konradcinkusz/csharp-flashcards/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
+
+# BlackHoleSim
+
+A C# implementation of a Schwarzschild black hole raytracer.
 This project numerically integrates photon geodesics in general relativity and renders a synthetic 
 image of a black hole with a thin accretion disk.
 
