@@ -65,13 +65,13 @@
 @if (_job is not null)
 {
     <div class="job-status">
-        <h2>Job @_job.Id.ToString("N")[..8]…</h2>
+        <h2>Job @ShortId(_job.Id)…</h2>
         <p>Status: <strong>@_job.Status</strong></p>
 
         @if (_job.Status is RenderJobStatus.Pending or RenderJobStatus.Running)
         {
             <progress value="@_job.Progress" max="1" class="progress-bar"></progress>
-            <span>@(_job.Progress * 100:F1)%</span>
+            <span>@((_job.Progress * 100).ToString("F1"))%</span>
         }
 
         @if (_job.Status == RenderJobStatus.Completed)
@@ -145,4 +145,6 @@
     {
         _pollTimer?.Dispose();
     }
+
+    private static string ShortId(Guid id) => id.ToString("N").Substring(0, 8);
 }

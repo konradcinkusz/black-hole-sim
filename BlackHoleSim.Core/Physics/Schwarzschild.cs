@@ -23,13 +23,13 @@ public sealed class Schwarzschild : IMetric
     private static double DGppInv_dr(double r) => -2.0 / (r * r * r);
 
     /// <inheritdoc/>
-    public double H(in State s)
+    public double H(State s)
         => 0.5 * (GttInv(s.r) * s.pt * s.pt
                 + GrrInv(s.r) * s.pr * s.pr
                 + GppInv(s.r) * s.pphi * s.pphi);
 
     /// <inheritdoc/>
-    public State RHS(in State s)
+    public State RHS(State s)
     {
         // dq^μ/dλ = ∂H/∂p_μ = g^{μμ} p_μ  (diagonal metric)
         double dt   = GttInv(s.r) * s.pt;
