@@ -1,0 +1,51 @@
+services:
+
+  # ── PostgreSQL database ────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-blackhole}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-blackhole}
+      POSTGRES_DB:       ${POSTGRES_DB:-blackholesim}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ── ASP.NET Core API ───────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: BlackHoleSim.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT:        Production
+      ASPNETCORE_URLS:               http://+:8080
+      ConnectionStrings__Default:    "Host=db;Port=5432;Database=${POSTGRES_DB:-blackholesim};Username=${POSTGRES_USER:-blackhole};Password=${POSTGRES_PASSWORD:-blackhole}"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Blazor WASM frontend (nginx) ───────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: BlackHoleSim.Web/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

@@ -1,0 +1,148 @@
+@page "/"
+@page "/render"
+@implements IDisposable
+
+<PageTitle>Render — BlackHoleSim</PageTitle>
+
+<h1>Schwarzschild Black Hole Renderer</h1>
+
+<EditForm Model="@_params" OnValidSubmit="StartRenderAsync">
+    <DataAnnotationsValidator />
+
+    <div class="form-grid">
+        <div class="form-group">
+            <label>Image Width</label>
+            <InputNumber @bind-Value="_params.Width" class="form-control" min="16" max="3840" />
+            <ValidationMessage For="() => _params.Width" />
+        </div>
+        <div class="form-group">
+            <label>Image Height</label>
+            <InputNumber @bind-Value="_params.Height" class="form-control" min="16" max="2160" />
+            <ValidationMessage For="() => _params.Height" />
+        </div>
+        <div class="form-group">
+            <label>Disk Inner Radius (Rin / M)</label>
+            <InputNumber @bind-Value="_params.Rin" class="form-control" />
+            <ValidationMessage For="() => _params.Rin" />
+        </div>
+        <div class="form-group">
+            <label>Disk Outer Radius (Rout / M)</label>
+            <InputNumber @bind-Value="_params.Rout" class="form-control" />
+            <ValidationMessage For="() => _params.Rout" />
+        </div>
+        <div class="form-group">
+            <label>Camera Distance (Rcam / M)</label>
+            <InputNumber @bind-Value="_params.Rcam" class="form-control" />
+            <ValidationMessage For="() => _params.Rcam" />
+        </div>
+        <div class="form-group">
+            <label>RK4 Step Size</label>
+            <InputNumber @bind-Value="_params.Step" class="form-control" />
+            <ValidationMessage For="() => _params.Step" />
+        </div>
+        <div class="form-group">
+            <label>Field of View (bMax)</label>
+            <InputNumber @bind-Value="_params.BMax" class="form-control" />
+            <ValidationMessage For="() => _params.BMax" />
+        </div>
+        <div class="form-group">
+            <label>Max Integration Steps</label>
+            <InputNumber @bind-Value="_params.MaxSteps" class="form-control" />
+            <ValidationMessage For="() => _params.MaxSteps" />
+        </div>
+    </div>
+
+    <button type="submit" class="btn-primary" disabled="@_busy">
+        @(_busy ? "Rendering…" : "Start Render")
+    </button>
+</EditForm>
+
+@if (_error is not null)
+{
+    <div class="alert-error">@_error</div>
+}
+
+@if (_job is not null)
+{
+    <div class="job-status">
+        <h2>Job @_job.Id.ToString("N")[..8]…</h2>
+        <p>Status: <strong>@_job.Status</strong></p>
+
+        @if (_job.Status is RenderJobStatus.Pending or RenderJobStatus.Running)
+        {
+            <progress value="@_job.Progress" max="1" class="progress-bar"></progress>
+            <span>@(_job.Progress * 100:F1)%</span>
+        }
+
+        @if (_job.Status == RenderJobStatus.Completed)
+        {
+            <div class="render-result">
+                <img src="@Api.GetImageUrl(_job.Id)" alt="Black hole render" class="render-image" />
+                <a href="@Api.GetImageUrl(_job.Id)" download="blackhole.png" class="btn-secondary">
+                    Download PNG
+                </a>
+            </div>
+        }
+
+        @if (_job.Status == RenderJobStatus.Failed)
+        {
+            <div class="alert-error">Render failed: @_job.ErrorMessage</div>
+        }
+    </div>
+}
+
+@code {
+    [Inject] RenderApiClient Api { get; set; } = default!;
+
+    private RenderParameters _params = new();
+    private RenderJobDto? _job;
+    private bool _busy;
+    private string? _error;
+    private PeriodicTimer? _pollTimer;
+
+    private async Task StartRenderAsync()
+    {
+        _busy  = true;
+        _error = null;
+        _job   = null;
+
+        _job = await Api.SubmitAsync(_params);
+
+        if (_job is null)
+        {
+            _error = "Failed to submit render job. Is the API running?";
+            _busy  = false;
+            return;
+        }
+
+        _ = PollUntilDoneAsync();
+    }
+
+    private async Task PollUntilDoneAsync()
+    {
+        _pollTimer?.Dispose();
+        _pollTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+
+        while (_job is not null && await _pollTimer.WaitForNextTickAsync())
+        {
+            _job = await Api.GetAsync(_job.Id);
+            await InvokeAsync(StateHasChanged);
+
+            if (_job?.Status is RenderJobStatus.Completed
+                             or RenderJobStatus.Failed
+                             or RenderJobStatus.Cancelled)
+            {
+                _busy = false;
+                _pollTimer.Dispose();
+                _pollTimer = null;
+                await InvokeAsync(StateHasChanged);
+                break;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _pollTimer?.Dispose();
+    }
+}

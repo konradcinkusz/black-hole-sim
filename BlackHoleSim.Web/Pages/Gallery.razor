@@ -1,0 +1,83 @@
+@page "/gallery"
+
+<PageTitle>Gallery — BlackHoleSim</PageTitle>
+
+<h1>Render Gallery</h1>
+
+@if (_loading)
+{
+    <p>Loading…</p>
+}
+else if (_jobs.Count == 0)
+{
+    <p>No renders yet. <a href="/">Start your first render!</a></p>
+}
+else
+{
+    <div class="gallery-grid">
+        @foreach (var job in _jobs)
+        {
+            <div class="gallery-card">
+                @if (job.Status == RenderJobStatus.Completed)
+                {
+                    <img src="@Api.GetImageUrl(job.Id)" alt="Render @job.Id" class="gallery-thumb" />
+                }
+                else
+                {
+                    <div class="gallery-thumb gallery-placeholder">
+                        <span>@job.Status</span>
+                    </div>
+                }
+                <div class="gallery-meta">
+                    <span class="job-id">@job.Id.ToString("N")[..8]…</span>
+                    <span class="job-date">@job.CreatedAt.ToString("yyyy-MM-dd HH:mm")</span>
+                    <span class="job-size">@job.Parameters.Width × @job.Parameters.Height</span>
+                    @if (job.Status == RenderJobStatus.Completed)
+                    {
+                        <a href="@Api.GetImageUrl(job.Id)" download="blackhole_@(job.Id.ToString("N")[..8]).png"
+                           class="btn-small">
+                            Download
+                        </a>
+                    }
+                    <button @onclick="() => DeleteAsync(job.Id)" class="btn-small btn-danger">
+                        Delete
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="pagination">
+        <button @onclick="PrevPage" disabled="@(_page <= 1)">← Prev</button>
+        <span>Page @_page</span>
+        <button @onclick="NextPage" disabled="@(_jobs.Count < _pageSize)">Next →</button>
+    </div>
+}
+
+@code {
+    [Inject] RenderApiClient Api { get; set; } = default!;
+
+    private List<RenderJobDto> _jobs = [];
+    private bool _loading = true;
+    private int _page = 1;
+    private const int _pageSize = 20;
+
+    protected override async Task OnInitializedAsync()
+        => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _jobs    = await Api.ListAsync(_page, _pageSize);
+        _loading = false;
+    }
+
+    private async Task PrevPage() { _page--; await LoadAsync(); }
+    private async Task NextPage() { _page++; await LoadAsync(); }
+
+    private async Task DeleteAsync(Guid id)
+    {
+        await Api.DeleteAsync(id);
+        await LoadAsync();
+    }
+}
