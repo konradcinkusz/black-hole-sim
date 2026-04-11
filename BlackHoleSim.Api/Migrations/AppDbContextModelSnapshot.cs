@@ -70,7 +70,6 @@ namespace BlackHoleSim.Api.Migrations
                     b1.Property<int>("Width").HasColumnType("integer");
 
                     b1.HasKey("RenderJobEntityId");
-                    b1.ToOwner();
                     b1.ToJson();
                 });
 

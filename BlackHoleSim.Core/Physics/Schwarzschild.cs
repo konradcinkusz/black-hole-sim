@@ -18,7 +18,7 @@ public sealed class Schwarzschild : IMetric
     public double GppInv(double r) => 1.0 / (r * r);
 
     // Radial derivatives of inverse metric components
-    private static double DGttInv_dr(double r) => -Rs / (r * r * F(r) * F(r));
+    private static double DGttInv_dr(double r) =>  Rs / (r * r * F(r) * F(r));
     private static double DGrrInv_dr(double r) =>  Rs / (r * r);
     private static double DGppInv_dr(double r) => -2.0 / (r * r * r);
 

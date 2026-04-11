@@ -1,6 +1,6 @@
-using BlackHoleSim.Core.Math;
 using BlackHoleSim.Core.Physics;
 using FluentAssertions;
+using RK4 = BlackHoleSim.Core.Math.RK4;
 
 namespace BlackHoleSim.Tests.Math;
 
@@ -19,7 +19,7 @@ public class RK4ConvergenceTests
         for (int i = 0; i < steps; i++)
             state = RK4.Step(HarmonicRHS, state, h);
         // Exact: q(t) = cos(t)
-        return Math.Abs(state.r - Math.Cos(steps * h));
+        return System.Math.Abs(state.r - System.Math.Cos(steps * h));
     }
 
     [Fact]
