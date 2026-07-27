@@ -27,7 +27,7 @@ public record RenderParameters
 
     /// <summary>Field-of-view scaling: maximum impact parameter sampled.</summary>
     [Range(1.0, 100.0)]
-    public double BMax { get; set; } = 10.0;
+    public double BMax { get; set; } = 50.0;
 
     /// <summary>Output image width in pixels.</summary>
     [Range(16, 3840)]
