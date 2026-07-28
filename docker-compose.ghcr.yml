@@ -1,0 +1,49 @@
+# Pull-and-run — NO repository clone needed. Download just this file:
+#   Linux/macOS/Git Bash: curl -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
+#   Windows PowerShell:   curl.exe -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
+#   docker compose -f docker-compose.ghcr.yml up
+# Web UI: http://localhost:8080  (nginx in the web image proxies /api/* to the api container)
+services:
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: blackhole
+      POSTGRES_PASSWORD: blackhole
+      POSTGRES_DB: blackholesim
+    volumes:
+      - blackholesim-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U blackhole -d blackholesim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/konradcinkusz/blackholesim-api:latest
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: "Host=db;Port=5432;Database=blackholesim;Username=blackhole;Password=blackhole"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  web:
+    image: ghcr.io/konradcinkusz/blackholesim-web:latest
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  blackholesim-pgdata:

@@ -2,15 +2,27 @@
 
 <div class="page">
     <div class="sidebar">
+        <div class="brand">
+            <svg class="brand-mark" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="16" cy="17" rx="14" ry="5" stroke="#ff8c1e" stroke-width="1.6" opacity="0.55" />
+                <ellipse cx="16" cy="17" rx="10" ry="3.2" stroke="#ffb04d" stroke-width="1.8" opacity="0.85" />
+                <circle cx="16" cy="16" r="7" fill="#05050a" stroke="#ff8c1e" stroke-width="1" />
+            </svg>
+            <div>
+                <div class="brand-name">BlackHoleSim</div>
+                <div class="brand-sub">Schwarzschild raytracer</div>
+            </div>
+        </div>
         <NavMenu />
     </div>
 
     <main>
-        <div class="top-row px-4">
+        <div class="top-row">
             <span class="app-title">BlackHoleSim</span>
+            <span class="app-tagline">— general-relativistic photon raytracer</span>
         </div>
 
-        <article class="content px-4">
+        <article class="content">
             @Body
         </article>
     </main>

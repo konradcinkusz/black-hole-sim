@@ -3,58 +3,60 @@
 <PageTitle>About — BlackHoleSim</PageTitle>
 
 <h1>About BlackHoleSim</h1>
-
-<p>
-    BlackHoleSim numerically integrates photon geodesics in the
-    <strong>Schwarzschild spacetime</strong> (G = c = M = 1) and renders
-    a synthetic image of a black hole with a thin accretion disk.
+<p class="subtitle">
+    Numerically integrates photon geodesics in <strong>Schwarzschild spacetime</strong>
+    (G = c = M = 1) and renders a synthetic image of a black hole with a thin accretion disk.
 </p>
 
-<h2>Physics</h2>
+<div class="card">
+    <h2>Physics</h2>
 
-<h3>Schwarzschild Metric (equatorial plane)</h3>
-<pre><code>ds² = -(1 - 2M/r) dt² + (1 - 2M/r)⁻¹ dr² + r² dφ²</code></pre>
+    <h3>Schwarzschild metric (equatorial plane)</h3>
+    <pre><code>ds² = -(1 - 2M/r) dt² + (1 - 2M/r)⁻¹ dr² + r² dφ²</code></pre>
 
-<h3>Null Geodesics via Hamiltonian Mechanics</h3>
-<p>
-    Photon motion is derived from the Hamiltonian:
-</p>
-<pre><code>H = ½ g^μν p_μ p_ν = 0</code></pre>
-<p>
-    Hamilton's equations give:
-</p>
-<pre><code>dq^μ/dλ =  ∂H/∂p_μ = g^μμ p_μ
+    <h3>Null geodesics via Hamiltonian mechanics</h3>
+    <p>Photon motion is derived from the Hamiltonian:</p>
+    <pre><code>H = ½ g^μν p_μ p_ν = 0</code></pre>
+    <p>Hamilton's equations give:</p>
+    <pre><code>dq^μ/dλ =  ∂H/∂p_μ = g^μμ p_μ
 dp_μ/dλ = -∂H/∂q^μ</code></pre>
-<p>
-    Because <em>t</em> and <em>φ</em> are cyclic coordinates, their conjugate momenta
-    <em>pt</em> (energy) and <em>pφ</em> (angular momentum) are conserved throughout
-    the integration.
-</p>
+    <p>
+        Because <em>t</em> and <em>φ</em> are cyclic coordinates, their conjugate momenta
+        <em>p<sub>t</sub></em> (energy) and <em>p<sub>φ</sub></em> (angular momentum) are conserved
+        throughout the integration.
+    </p>
 
-<h3>Integration</h3>
-<p>
-    The classic 4th-order <strong>Runge–Kutta (RK4)</strong> integrator advances the
-    6-component state vector (t, r, φ, pt, pr, pφ) along the affine parameter λ.
-</p>
+    <h3>Integration</h3>
+    <p>
+        The classic 4th-order <strong>Runge–Kutta (RK4)</strong> integrator advances the
+        6-component state vector (t, r, φ, p<sub>t</sub>, p<sub>r</sub>, p<sub>φ</sub>) along the
+        affine parameter λ.
+    </p>
 
-<h3>Key Radii</h3>
-<ul>
-    <li><strong>Event horizon:</strong> r = 2M — photons inside are captured</li>
-    <li><strong>Photon sphere:</strong> r = 3M — unstable circular photon orbits</li>
-    <li><strong>ISCO:</strong> r = 6M — inner edge of the accretion disk</li>
-</ul>
+    <h3>Key radii</h3>
+    <ul>
+        <li><strong>Event horizon:</strong> r = 2M — photons inside are captured</li>
+        <li><strong>Photon sphere:</strong> r = 3M — unstable circular photon orbits</li>
+        <li><strong>ISCO:</strong> r = 6M — inner edge of the accretion disk</li>
+    </ul>
+</div>
 
-<h2>References</h2>
-<ul>
-    <li>Sean Carroll — <em>Spacetime and Geometry</em> (2003)</li>
-    <li>J.-P. Luminet (1979) — <em>Image of a spherical black hole with thin accretion disk</em></li>
-    <li>Kip Thorne — <em>Black Holes and Time Warps</em> (1994)</li>
-</ul>
+<div class="card">
+    <h2>References</h2>
+    <ul>
+        <li>Sean Carroll — <em>Spacetime and Geometry</em> (2003)</li>
+        <li>J.-P. Luminet (1979) — <em>Image of a spherical black hole with thin accretion disk</em></li>
+        <li>Kip Thorne — <em>Black Holes and Time Warps</em> (1994)</li>
+    </ul>
+</div>
 
-<h2>Technology</h2>
-<ul>
-    <li>Physics core: C# / .NET 9.0</li>
-    <li>API: ASP.NET Core 9 Minimal API + PostgreSQL</li>
-    <li>Frontend: Blazor WebAssembly</li>
-    <li>PNG encoding: SixLabors.ImageSharp</li>
-</ul>
+<div class="card">
+    <h2>Technology</h2>
+    <ul class="tech-list">
+        <li><strong>Physics core</strong> C# / .NET 9</li>
+        <li><strong>API</strong> ASP.NET Core 9 minimal API + PostgreSQL (EF Core)</li>
+        <li><strong>Frontend</strong> Blazor WebAssembly, no JS framework</li>
+        <li><strong>PNG encoding</strong> SixLabors.ImageSharp</li>
+        <li><strong>Local orchestration</strong> .NET Aspire (BlackHoleSim.AppHost)</li>
+    </ul>
+</div>

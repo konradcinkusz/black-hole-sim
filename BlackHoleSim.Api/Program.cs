@@ -61,9 +61,15 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
     app.UseCors("dev");
+}
 
-    // Auto-migrate in dev
-    using var scope = app.Services.CreateScope();
+// Apply migrations on every startup, not just in Development — RenderWorker
+// queries RenderJobs unconditionally as soon as the host starts, and an
+// unhandled exception there stops the whole host (BackgroundServiceExceptionBehavior
+// defaults to StopHost). Without this, Production (docker-compose's default
+// ASPNETCORE_ENVIRONMENT) crash-loops on first boot against a fresh database.
+using (var scope = app.Services.CreateScope())
+{
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
 }

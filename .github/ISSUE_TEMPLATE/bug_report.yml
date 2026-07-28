@@ -1,0 +1,57 @@
+name: Bug report
+description: A render that looks wrong, a build failure, a crash.
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where does this happen?
+      options:
+        - Console app (dotnet run --project BlackHoleSim.ConsoleApp)
+        - API (BlackHoleSim.Api)
+        - Web UI (BlackHoleSim.Web)
+        - Docker Compose
+        - Aspire AppHost
+        - Build / CI
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: params
+    attributes:
+      label: Render parameters, if relevant
+      description: >
+        Width/Height, Rin/Rout/Rcam, Step, BMax, MaxSteps — whatever you used.
+        Renders are deterministic given the same parameters, so this is usually
+        the fastest way to reproduce a visual bug.
+      render: text
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / stack trace / screenshot
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "a commit sha, or a release tag once one exists"
