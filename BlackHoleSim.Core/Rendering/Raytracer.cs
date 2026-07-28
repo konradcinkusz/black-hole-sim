@@ -98,7 +98,15 @@ public static class Raytracer
 
         // pr from null-geodesic condition H=0
         double inner = 1.0 / f0 - bImpact * bImpact / (r0 * r0);
-        if (inner < 0) return Black; // would not propagate
+        if (inner < 0)
+        {
+            // No physical inward-pointing null ray exists with this impact
+            // parameter at this camera radius (b exceeds what's kinematically
+            // reachable from r0). This is a wide-FOV edge case, not a photon
+            // captured by the horizon — colour it as background sky so it
+            // isn't visually confused with the true event-horizon shadow.
+            return Sky;
+        }
         double pr = -System.Math.Sqrt(f0 * inner);
 
         var state = new State(0.0, r0, 0.0, pt, pr, pphi);

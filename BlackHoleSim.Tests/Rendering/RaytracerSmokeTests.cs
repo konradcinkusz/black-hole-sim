@@ -1,3 +1,4 @@
+using BlackHoleSim.Core.Physics;
 using BlackHoleSim.Core.Rendering;
 using BlackHoleSim.Shared;
 using FluentAssertions;
@@ -57,5 +58,35 @@ public class RaytracerSmokeTests
 
         var act = () => Raytracer.RenderToPixels(p, null, cts.Token);
         act.Should().Throw<OperationCanceledException>();
+    }
+
+    [Fact]
+    public void Trace_SmallImpactParameter_IsCapturedByHorizon()
+    {
+        // Rin/Rout placed beyond Rcam so the ray (which only moves inward
+        // from r0) can never cross the disk band — isolates true horizon
+        // capture from the disk-hit and invalid-ray cases below.
+        var metric = new Schwarzschild();
+        var p = new RenderParameters { Rin = 100, Rout = 200, Rcam = 50, MaxSteps = 4000, Step = 0.1 };
+
+        // Well below the photon-sphere critical impact parameter (3*sqrt(3)*M ≈ 5.196M).
+        var (r, g, b) = Raytracer.Trace(metric, 3.0, p);
+
+        (r, g, b).Should().Be(((byte)0, (byte)0, (byte)0), "a photon this far inside b_crit must fall into the horizon");
+    }
+
+    [Fact]
+    public void Trace_ImpactParameterBeyondCameraKinematics_IsSkyNotShadow()
+    {
+        // At Rcam=50, b greater than Rcam/sqrt(1 - Rs/Rcam) ≈ 51.03 has no
+        // physically valid inward-pointing null ray from this camera radius.
+        // That's a wide-FOV edge case, not a captured photon, so it must not
+        // render as the same colour as the true event-horizon shadow.
+        var metric = new Schwarzschild();
+        var p = new RenderParameters { Rcam = 50 };
+
+        var (r, g, b) = Raytracer.Trace(metric, 60.0, p);
+
+        (r, g, b).Should().NotBe(((byte)0, (byte)0, (byte)0), "an invalid-geometry ray is not a horizon capture");
     }
 }
