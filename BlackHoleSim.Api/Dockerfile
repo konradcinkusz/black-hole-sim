@@ -19,7 +19,7 @@ RUN dotnet publish BlackHoleSim.Api/BlackHoleSim.Api.csproj \
     -c Release -o /app --no-restore
 
 # ── Runtime stage ───────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Non-root user for security
