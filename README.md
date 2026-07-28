@@ -25,9 +25,34 @@ docker compose up --build
 # API:     http://localhost:8080/api  (proxied by the web container's nginx)
 ```
 
-![Render form](docs/img/web-render-form.png)
-![Completed render](docs/img/web-render-result.png)
+---
+
+## Screenshots
+
+The render form, a completed job, and the gallery — real screenshots of the
+Blazor UI against a live API and Postgres, not mockups:
+
+| Render form | Completed render |
+|---|---|
+| ![Render form](docs/img/web-render-form.png) | ![Completed render](docs/img/web-render-result.png) |
+
 ![Gallery](docs/img/web-gallery.png)
+
+---
+
+## Simulations — the effect of field of view
+
+Same black hole, same disk, only `BMax` (the maximum photon impact parameter
+sampled) changes. Too narrow and every ray crosses the disk band before it
+can escape or reach the horizon — no shadow, no sky, just flat disk colour;
+too wide and the shadow and disk shrink to a speck in an empty frame:
+
+| `BMax = 30` — no shadow, no sky | `BMax = 50` — default | `BMax = 80` — wide |
+|---|---|---|
+| ![bMax 30](docs/img/sim_bmax30.png) | ![bMax 50](docs/img/sim_bmax50.png) | ![bMax 80](docs/img/sim_bmax80.png) |
+
+Reproduce any of these directly with the console renderer:
+`dotnet run --project BlackHoleSim.ConsoleApp -- out.ppm 640 480 <bMax>`
 
 ---
 

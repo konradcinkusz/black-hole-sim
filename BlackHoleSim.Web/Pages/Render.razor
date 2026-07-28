@@ -5,57 +5,82 @@
 <PageTitle>Render — BlackHoleSim</PageTitle>
 
 <h1>Schwarzschild Black Hole Renderer</h1>
+<p class="subtitle">Numerically integrate photon geodesics and render a black hole with a thin accretion disk.</p>
 
-<EditForm Model="@_params" OnValidSubmit="StartRenderAsync">
-    <DataAnnotationsValidator />
+<div class="card">
+    <EditForm Model="@_params" OnValidSubmit="StartRenderAsync">
+        <DataAnnotationsValidator />
 
-    <div class="form-grid">
-        <div class="form-group">
-            <label>Image Width</label>
-            <InputNumber @bind-Value="_params.Width" class="form-control" min="16" max="3840" />
-            <ValidationMessage For="() => _params.Width" />
+        <div class="field-section">
+            <div class="field-section-title">Image</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Width</label>
+                    <InputNumber @bind-Value="_params.Width" class="form-control" min="16" max="3840" />
+                    <ValidationMessage For="() => _params.Width" />
+                </div>
+                <div class="form-group">
+                    <label>Height</label>
+                    <InputNumber @bind-Value="_params.Height" class="form-control" min="16" max="2160" />
+                    <ValidationMessage For="() => _params.Height" />
+                </div>
+                <div class="form-group">
+                    <label>Field of View (bMax)</label>
+                    <InputNumber @bind-Value="_params.BMax" class="form-control" />
+                    <span class="hint">too small and the shadow/sky never show</span>
+                    <ValidationMessage For="() => _params.BMax" />
+                </div>
+            </div>
         </div>
-        <div class="form-group">
-            <label>Image Height</label>
-            <InputNumber @bind-Value="_params.Height" class="form-control" min="16" max="2160" />
-            <ValidationMessage For="() => _params.Height" />
-        </div>
-        <div class="form-group">
-            <label>Disk Inner Radius (Rin / M)</label>
-            <InputNumber @bind-Value="_params.Rin" class="form-control" />
-            <ValidationMessage For="() => _params.Rin" />
-        </div>
-        <div class="form-group">
-            <label>Disk Outer Radius (Rout / M)</label>
-            <InputNumber @bind-Value="_params.Rout" class="form-control" />
-            <ValidationMessage For="() => _params.Rout" />
-        </div>
-        <div class="form-group">
-            <label>Camera Distance (Rcam / M)</label>
-            <InputNumber @bind-Value="_params.Rcam" class="form-control" />
-            <ValidationMessage For="() => _params.Rcam" />
-        </div>
-        <div class="form-group">
-            <label>RK4 Step Size</label>
-            <InputNumber @bind-Value="_params.Step" class="form-control" />
-            <ValidationMessage For="() => _params.Step" />
-        </div>
-        <div class="form-group">
-            <label>Field of View (bMax)</label>
-            <InputNumber @bind-Value="_params.BMax" class="form-control" />
-            <ValidationMessage For="() => _params.BMax" />
-        </div>
-        <div class="form-group">
-            <label>Max Integration Steps</label>
-            <InputNumber @bind-Value="_params.MaxSteps" class="form-control" />
-            <ValidationMessage For="() => _params.MaxSteps" />
-        </div>
-    </div>
 
-    <button type="submit" class="btn-primary" disabled="@_busy">
-        @(_busy ? "Rendering…" : "Start Render")
-    </button>
-</EditForm>
+        <div class="field-section">
+            <div class="field-section-title">Disk &amp; Camera</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Disk Inner Radius (Rin / M)</label>
+                    <InputNumber @bind-Value="_params.Rin" class="form-control" />
+                    <ValidationMessage For="() => _params.Rin" />
+                </div>
+                <div class="form-group">
+                    <label>Disk Outer Radius (Rout / M)</label>
+                    <InputNumber @bind-Value="_params.Rout" class="form-control" />
+                    <ValidationMessage For="() => _params.Rout" />
+                </div>
+                <div class="form-group">
+                    <label>Camera Distance (Rcam / M)</label>
+                    <InputNumber @bind-Value="_params.Rcam" class="form-control" />
+                    <ValidationMessage For="() => _params.Rcam" />
+                </div>
+            </div>
+        </div>
+
+        <div class="field-section">
+            <div class="field-section-title">Integration</div>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>RK4 Step Size</label>
+                    <InputNumber @bind-Value="_params.Step" class="form-control" />
+                    <ValidationMessage For="() => _params.Step" />
+                </div>
+                <div class="form-group">
+                    <label>Max Integration Steps</label>
+                    <InputNumber @bind-Value="_params.MaxSteps" class="form-control" />
+                    <ValidationMessage For="() => _params.MaxSteps" />
+                </div>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn-primary" disabled="@_busy">
+                @(_busy ? "Rendering…" : "Start Render")
+            </button>
+            @if (_job is not null)
+            {
+                <span class="badge @_job.Status.CssClass()">@_job.Status</span>
+            }
+        </div>
+    </EditForm>
+</div>
 
 @if (_error is not null)
 {
@@ -64,23 +89,29 @@
 
 @if (_job is not null)
 {
-    <div class="job-status">
-        <h2>Job @ShortId(_job.Id)…</h2>
-        <p>Status: <strong>@_job.Status</strong></p>
+    <div class="job-status card">
+        <div class="job-status-header">
+            <h2>Job @ShortId(_job.Id)…</h2>
+            <span class="badge @_job.Status.CssClass()">@_job.Status</span>
+        </div>
 
         @if (_job.Status is RenderJobStatus.Pending or RenderJobStatus.Running)
         {
             <progress value="@_job.Progress" max="1" class="progress-bar"></progress>
-            <span>@((_job.Progress * 100).ToString("F1"))%</span>
+            <div class="progress-label">@((_job.Progress * 100).ToString("F1"))% complete</div>
         }
 
         @if (_job.Status == RenderJobStatus.Completed)
         {
             <div class="render-result">
-                <img src="@Api.GetImageUrl(_job.Id)" alt="Black hole render" class="render-image" />
-                <a href="@Api.GetImageUrl(_job.Id)" download="blackhole.png" class="btn-secondary">
-                    Download PNG
-                </a>
+                <div class="render-frame">
+                    <img src="@Api.GetImageUrl(_job.Id)" alt="Black hole render" class="render-image" />
+                </div>
+                <div>
+                    <a href="@Api.GetImageUrl(_job.Id)" download="blackhole.png" class="btn-secondary">
+                        Download PNG
+                    </a>
+                </div>
             </div>
         }
 
