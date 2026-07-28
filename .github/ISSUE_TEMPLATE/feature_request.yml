@@ -1,0 +1,35 @@
+name: Feature request or design question
+description: A new metric type, a Kerr metric, a rendering improvement.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Raise this before writing a large PR so we can agree on the approach first.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What can't you do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you add or change?
+      description: >
+        If it touches the physics (`BlackHoleSim.Core/Physics`), say what metric
+        or approximation you're proposing and why RK4 (vs. a different integrator)
+        is still adequate — or isn't.
+    validations:
+      required: true
+
+  - type: textarea
+    id: objections
+    attributes:
+      label: What's the strongest argument against it?
+      description: >
+        E.g. a Kerr metric is a bigger integrator change than it looks, and a
+        3D/inclined camera changes the disk-intersection logic, not just the
+        metric — say what you'd have to touch.
