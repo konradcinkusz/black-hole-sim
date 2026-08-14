@@ -75,7 +75,13 @@ jobs:
       - name: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
+          # Required on pull_request events — the action resolves the PR's commit
+          # range through the API and refuses to run without it.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          # A finding fails the job, which is the signal. Commenting on the PR would
+          # need pull-requests: write, and this workflow has no reason to hold it.
+          GITLEAKS_ENABLE_COMMENTS: false
 
   codeql:
     name: CodeQL
