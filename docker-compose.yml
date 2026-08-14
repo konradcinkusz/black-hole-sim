@@ -37,7 +37,13 @@ services:
     healthcheck:
       # /health is readiness: it stays red until migrations have been applied, which
       # is exactly what `web`'s depends_on wants to wait for.
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
+      #
+      # Both address families are tried rather than `localhost`, on purpose. Kestrel
+      # logs `Now listening on: http://[::]:8080`, and whether that one socket also
+      # answers on 127.0.0.1 depends on dual-stack support in the container — which
+      # is not something a health probe should be quietly betting on. `localhost`
+      # additionally leaves the order of the two up to the resolver.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || curl -fsS http://[::1]:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,7 +70,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || wget -qO- http://[::1]:8080/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
