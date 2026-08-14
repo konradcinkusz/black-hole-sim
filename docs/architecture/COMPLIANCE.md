@@ -206,17 +206,22 @@ So:
 | Every shell script parses | `bash -n` / `sh -n` |
 | Logic and wiring | Read, by hand, against the standards' failure-mode tables |
 
-| **Not** checked locally | Covered by |
+| Not checked locally | Now verified by |
 |---|---|
-| The solution compiles | CI `build-and-test` |
-| Tests pass | CI `build-and-test` |
-| Both images build | CI `docker-build-api`, `docker-build-web` |
-| The stack runs, the frontend gets its API address | CI `compose-smoke` — added in this change specifically so this is not left to a human |
-| A real Fly deploy | Pushing a `v*` tag, once `FLY_API_TOKEN` and `POSTGRES_PASSWORD` exist in the `fly` GitHub environment |
+| The solution compiles, including `WithHttpHealthCheck` and the `AddCheck(…, tags:)` overload — the two changes most likely to fail to build | ✅ CI `build-and-test` |
+| Tests pass | ✅ CI `build-and-test` |
+| Both images build | ✅ CI `docker-build-api`, `docker-build-web` |
+| The stack runs; the API reaches ready; the frontend serves `/healthz` and is handed the right API address at container start | ✅ CI `compose-smoke` |
+| A real Fly deploy | ❌ Still unproven. Needs `FLY_API_TOKEN` and `POSTGRES_PASSWORD` in a `fly` GitHub environment, then a `v*` tag. |
 
-Two changes carry the most risk of a compile error and are worth watching in the first
-CI run: `WithHttpHealthCheck` in the AppHost (an Aspire API), and the `AddCheck` overload
-with a `tags:` argument in `Program.cs`.
+The `compose-smoke` job earned its place immediately: it found that
+`docker compose up` had been broken on `master` — the API's healthcheck probed
+`localhost`, which is not a safe assumption inside a container where Kestrel binds
+`[::]` — so `web` never started behind it. That bug was invisible to every check that
+existed before, because nothing ran the stack.
+
+The remaining honest gap is the deploy itself. Everything it depends on is verified;
+the tag-driven pipeline has never been executed against a real Fly organisation.
 
 ---
 

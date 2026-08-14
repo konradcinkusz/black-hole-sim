@@ -63,14 +63,26 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 - The web container listens on 8080 (was 80), from `PORT`.
 
 ### Fixed
-- **The API container's healthcheck could never pass.** It ran
-  `wget -qO- .../api/health`, but `mcr.microsoft.com/dotnet/aspnet:9.0` is
-  Debian-slim and ships neither `wget` nor `curl` — so it exited 127 every
-  time, the container was marked unhealthy while the API was serving fine, and
-  `web`'s `depends_on: condition: service_healthy` never came up. That means
-  the documented `docker compose up` quick start had been broken; nothing
-  caught it because nothing exercised compose until the new `compose-smoke` CI
-  job did. The runtime image now installs `curl` and the healthchecks use it.
+- **The API container's healthcheck could never pass**, so the container was
+  reported unhealthy while the API was serving correctly and `web`'s
+  `depends_on: condition: service_healthy` never came up — meaning the
+  documented `docker compose up` quick start had been broken. Nothing caught
+  it because nothing exercised compose until the new `compose-smoke` CI job
+  did.
+
+  The fix that mattered was the address: the probe asked for `localhost`, and
+  Kestrel logs `Now listening on: http://[::]:8080`, so whether that socket
+  also answers on `127.0.0.1` depends on dual-stack support in the container
+  while `localhost` leaves the choice of the two to the resolver. Probes now
+  try `127.0.0.1` and then `[::1]` explicitly. The runtime image also installs
+  `curl` and the API probe uses it rather than `wget`, so the probe does not
+  depend on which HTTP client a slim base image happens to include — that was
+  a hardening rather than the cure, and swapping the tool alone did not fix
+  it.
+
+  The smoke test's failure path now prints the probe's own output and exit
+  code from `docker inspect`, so the next occurrence is answerable in one run
+  instead of three.
 - **Neither `.dockerignore` was ever read.** `BlackHoleSim.Api/.dockerignore`
   and `BlackHoleSim.Web/.dockerignore` looked correct, but Docker only reads a
   `.dockerignore` from the root of the build *context* — and both images build
