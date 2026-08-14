@@ -1,0 +1,39 @@
+# Review ownership.
+#
+# The point of this file is not bureaucracy — it is that the paths where a mistake
+# is expensive should never merge without the person who can spot the mistake. A
+# later contributor inherits the map instead of having to know it.
+#
+# Last matching pattern wins, so the specific entries are at the bottom.
+
+# Default owner for everything not claimed below.
+*                               @konradcinkusz
+
+# ── Deployment and infrastructure ────────────────────────────────────────────
+# A wrong value here does not fail a test; it fails a deploy, or worse, succeeds
+# quietly with the wrong database.
+/flyio/                         @konradcinkusz
+/.github/workflows/             @konradcinkusz
+/Dockerfile                     @konradcinkusz
+**/Dockerfile                   @konradcinkusz
+/docker-compose.yml             @konradcinkusz
+/docker-compose.ghcr.yml        @konradcinkusz
+/.dockerignore                  @konradcinkusz
+
+# ── Secret-adjacent ──────────────────────────────────────────────────────────
+/flyio/SECRETS.md               @konradcinkusz
+/.env.example                   @konradcinkusz
+/.gitleaks.toml                 @konradcinkusz
+
+# ── Schema ───────────────────────────────────────────────────────────────────
+# Migrations are append-only in effect: once one has run anywhere, editing it is
+# not a code change, it is a data problem.
+/BlackHoleSim.Api/Migrations/   @konradcinkusz
+
+# ── The physics ──────────────────────────────────────────────────────────────
+# The geodesic integrator and the renderer are the part of this repository where
+# "it compiles and the tests pass" is the weakest possible signal.
+/BlackHoleSim.Core/             @konradcinkusz
+
+# ── Standards ────────────────────────────────────────────────────────────────
+/docs/architecture/             @konradcinkusz

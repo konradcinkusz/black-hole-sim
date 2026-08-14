@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["**"]
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: Build & Test (.NET)
@@ -35,6 +38,102 @@ jobs:
           name: test-results
           path: "**/*.trx"
 
+  # The repository claims a formatting standard in .editorconfig. This is what makes
+  # that claim true — a committed-but-never-executed config is not a standard.
+  #
+  # Advisory for now, and deliberately so: .editorconfig arrived after the code did,
+  # and the existing source uses aligned assignments that `dotnet format` collapses.
+  # Turning this red before that pass lands would mean a permanently failing CI,
+  # which teaches people to ignore CI. Run `dotnet format BlackHoleSim.sln`, commit
+  # the result, then delete the continue-on-error line below.
+  format:
+    name: Format check (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Verify formatting
+        run: dotnet format BlackHoleSim.sln --verify-no-changes --severity error
+
+  # The other half of secret scanning. The pre-commit hook catches the mistake
+  # before it becomes history; this catches contributors without the hook.
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: a secret removed in the tip commit is still a leaked secret.
+          fetch-depth: 0
+
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+          build-mode: manual
+
+      - name: Build
+        run: dotnet build BlackHoleSim.sln -c Release
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+
+  dependency-audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore BlackHoleSim.sln
+
+      - name: Fail on vulnerable packages
+        run: |
+          set -euo pipefail
+          # `dotnet list package --vulnerable` exits 0 even when it finds something,
+          # so the output has to be inspected rather than the exit code trusted.
+          dotnet list BlackHoleSim.sln package --vulnerable --include-transitive \
+            > vulnerable.txt 2>&1 || true
+          cat vulnerable.txt
+          if grep -qiE '\b(Critical|High)\b' vulnerable.txt; then
+            echo "::error::High or critical severity vulnerabilities found in dependencies."
+            exit 1
+          fi
+          if grep -qi 'has the following vulnerable packages' vulnerable.txt; then
+            echo "::warning::Low or moderate severity vulnerabilities found. Not failing the build."
+          fi
+
   docker-build-api:
     name: Docker build (API)
     runs-on: ubuntu-latest
@@ -56,3 +155,37 @@ jobs:
 
       - name: Build Web image
         run: docker build -f BlackHoleSim.Web/Dockerfile -t blackholesim-web:ci .
+
+  # Proves the two images actually run together and that the frontend gets a usable
+  # API address at container start — the failure the health checks cannot see.
+  compose-smoke:
+    name: Compose smoke test
+    runs-on: ubuntu-latest
+    needs: [docker-build-api, docker-build-web]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Start the stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: The API reports ready
+        run: curl -fsS http://localhost:5081/health
+
+      - name: The frontend serves its health endpoint
+        run: curl -fsS http://localhost:8080/healthz
+
+      - name: The frontend was given the API address at runtime
+        run: |
+          set -euo pipefail
+          CONFIG="$(curl -fsS http://localhost:8080/appsettings.json)"
+          echo "$CONFIG"
+          echo "$CONFIG" | grep -q 'http://localhost:5081'
+
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

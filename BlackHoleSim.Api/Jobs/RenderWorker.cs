@@ -8,11 +8,31 @@ namespace BlackHoleSim.Api.Jobs;
 public sealed class RenderWorker(
     IRenderJobQueue queue,
     JobCancellationRegistry cancelRegistry,
+    DatabaseReadyGate databaseReady,
     IServiceProvider sp,
     ILogger<RenderWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        // Migrations run concurrently with this worker now that they no longer block
+        // startup, so the tables may not exist yet. Waiting here is what keeps the
+        // first query from throwing and taking the whole host down with it.
+        try
+        {
+            await databaseReady.WaitAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            logger.LogCritical(ex,
+                "Schema never became usable; the render worker is standing down. "
+                + "The API stays up so /health can report why.");
+            return;
+        }
+
         // Recover jobs that were in-flight when the API last stopped
         await RecoverStaleJobsAsync(stoppingToken);
 

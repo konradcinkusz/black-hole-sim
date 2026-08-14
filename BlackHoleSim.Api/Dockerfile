@@ -4,6 +4,7 @@ WORKDIR /src
 
 # Copy solution and all csproj files first (improves layer caching)
 COPY BlackHoleSim.sln .
+COPY Directory.Build.props ./
 COPY BlackHoleSim.Shared/BlackHoleSim.Shared.csproj         BlackHoleSim.Shared/
 COPY BlackHoleSim.Core/BlackHoleSim.Core.csproj             BlackHoleSim.Core/
 COPY BlackHoleSim.Api/BlackHoleSim.Api.csproj               BlackHoleSim.Api/

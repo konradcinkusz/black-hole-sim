@@ -1,0 +1,90 @@
+# Teardown for the Fly.io deployment.
+#
+# Behind a typed confirmation, and keeping the data volume unless someone explicitly
+# says otherwise. A workflow that destroys data on a single click eventually gets a
+# single click.
+name: Fly.io destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type DESTROY blackholesim to confirm"
+        type: string
+        required: true
+      delete_volume:
+        description: "Also delete the Postgres volume — every render is lost, permanently"
+        type: boolean
+        default: false
+
+concurrency:
+  group: flyio-deploy
+  cancel-in-progress: false
+
+env:
+  APP_POSTGRES: blackholesim-postgres
+  APP_API: blackholesim-api
+  APP_WEB: blackholesim-web
+
+jobs:
+  destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Check the confirmation
+        run: |
+          if [ "${{ inputs.confirm }}" != "DESTROY blackholesim" ]; then
+            echo "::error::Confirmation string did not match. Nothing was touched."
+            exit 1
+          fi
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Destroy apps
+        run: |
+          set -euo pipefail
+
+          # Reverse dependency order: the frontend goes first so nothing is left
+          # serving requests against an API whose database has already gone.
+          #
+          # Legacy names belong in this list too. After a rename, resources under the
+          # old name outlive every cleanup and bill forever — there are none yet, and
+          # the placeholder is here so the next rename remembers.
+          for app in "${{ env.APP_WEB }}" "${{ env.APP_API }}" "${{ env.APP_POSTGRES }}"; do
+            if flyctl apps list --json | jq -e --arg a "$app" '.[] | select((.Name // .name) == $a)' >/dev/null; then
+              echo "Destroying $app"
+              flyctl apps destroy "$app" --yes
+            else
+              echo "$app does not exist, skipping."
+            fi
+          done
+
+      - name: Handle the volume
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.delete_volume }}" = "true" ]; then
+            # Destroying the app usually takes its volumes with it; this catches any
+            # that outlived it.
+            for id in $(flyctl volumes list -a "${{ env.APP_POSTGRES }}" --json 2>/dev/null | jq -r '.[] | (.id // .ID)' || true); do
+              echo "Destroying volume $id"
+              flyctl volumes destroy "$id" --yes || true
+            done
+          else
+            echo "::notice::The Postgres volume was kept. It still costs storage. Re-run with delete_volume to remove it."
+          fi
+
+      - name: What happens next
+        run: |
+          {
+            echo "## Destroyed"
+            echo
+            echo "Volume deleted: \`${{ inputs.delete_volume }}\`"
+            echo
+            echo "To bring the deployment back, push a tag. Change detection treats a"
+            echo "service whose Fly app is missing as changed, so everything rebuilds"
+            echo "and redeploys from that one tag — no manual \`fly launch\` needed."
+          } >> "$GITHUB_STEP_SUMMARY"
