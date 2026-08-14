@@ -10,6 +10,25 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 ## [Unreleased]
 
 ### Added
+- **Fly.io deployment.** `flyio/` holds one `fly.toml` per app —
+  `blackholesim-web` (scales to zero), `blackholesim-api` (one machine always
+  up) and `blackholesim-postgres` (private network only, no public IP) — plus
+  `SECRETS.md` and `INFRASTRUCTURE-ANALYSIS.md`. Deploying is pushing a `v*`
+  tag: `flyio.yml` tests, detects what changed since the *previous tag*, builds
+  each image once and deploys postgres → api → web. A service whose Fly app
+  does not exist is always treated as changed, so the first tag against an
+  empty Fly organisation provisions everything with no manual `fly launch`.
+  Manual `Fly.io scale` and `Fly.io destroy` (typed confirmation, keeps the
+  volume by default) workflows alongside it.
+- `/health` (readiness — red until migrations have been applied) and `/alive`
+  (liveness only) on the API, and a dedicated `/healthz` on the frontend.
+  `/api/health` and `/api/health/db` still work.
+- `docs/architecture/COMPLIANCE.md` — this repository measured against
+  `konradcinkusz/architecture-standards`, including the gaps not closed and why.
+- Repository baseline: root `.dockerignore`, `CODEOWNERS`, `.editorconfig`,
+  `Directory.Build.props`, real `.gitattributes` rules, gitleaks as both a
+  pre-commit hook and a CI job, CodeQL, a dependency audit, a compose smoke
+  test, and `scripts/` (one-command onboarding plus a local mirror of CI).
 - Full-stack implementation: `BlackHoleSim.Api` (render-job queue backed by
   Postgres via EF Core), `BlackHoleSim.Web` (Blazor WebAssembly UI — render
   form with live progress polling, paginated gallery), `BlackHoleSim.Shared`
@@ -25,7 +44,31 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 - README rewritten to document the actual current architecture (it previously
   described only the original Core + ConsoleApp layout).
 
+### Changed
+- Migrations moved off the startup path. They ran inline before `app.Run()`,
+  so Kestrel only began listening once Postgres had answered — on a platform
+  that judges a deploy by an HTTP health check, that turns a slow database into
+  a failed deploy. `DatabaseMigrationService` now applies them after the
+  listener is up, retrying while Postgres comes up, behind a gate that keeps
+  `RenderWorker` off the tables until they exist (which is what the inline call
+  was protecting). A migration that ultimately fails leaves the API up and
+  reporting why on `/health` instead of crash-looping.
+- The frontend calls the API directly instead of through nginx. `proxy_pass
+  http://api:8080` hardcoded a docker-compose service name, which resolves to
+  nothing once each service is its own app. The API address is now written into
+  `wwwroot/appsettings.json` when the container starts (from `API_BASE_URL`),
+  so one image is promotable across environments, and the API's CORS allowlist
+  became configuration (`Cors__AllowedOrigins__0`) rather than a hardcoded dev
+  list. `docker compose up` now publishes the API on `${API_PORT:-5081}`.
+- The web container listens on 8080 (was 80), from `PORT`.
+
 ### Fixed
+- **Neither `.dockerignore` was ever read.** `BlackHoleSim.Api/.dockerignore`
+  and `BlackHoleSim.Web/.dockerignore` looked correct, but Docker only reads a
+  `.dockerignore` from the root of the build *context* — and both images build
+  with `context: .`. Every build had been uploading `.git`, `docs/` and the
+  sample renders to the daemon. Replaced with a root `.dockerignore`; the two
+  dead files are deleted.
 - The default `BMax` (field-of-view scaling) was `10`, which made every ray
   cross the accretion-disk radius band before it could escape or reach the
   event horizon — the out-of-the-box render was a solid orange square, no
