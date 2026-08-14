@@ -23,11 +23,25 @@ RUN dotnet publish BlackHoleSim.Api/BlackHoleSim.Api.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
-# Non-root user for security
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
-USER appuser
+# curl exists here for exactly one reason: the container healthcheck.
+#
+# This base image is Debian-slim and ships neither curl nor wget, so the
+# `wget -qO- .../health` healthcheck in docker-compose.yml could never run — it
+# exited 127 every time, the container was marked unhealthy while the API was
+# perfectly healthy, and `web`'s `depends_on: service_healthy` therefore never
+# came up. Nothing caught it because nothing exercised compose until the
+# compose-smoke CI job existed.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app .
+# Non-root user for security. Ownership is set on the way in, and the switch
+# happens after the copy — COPY runs as root regardless of a preceding USER.
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
+COPY --from=build --chown=appuser:appgroup /app .
+
+USER appuser
 
 ENV ASPNETCORE_URLS=http://+:8080
 EXPOSE 8080

@@ -37,7 +37,7 @@ services:
     healthcheck:
       # /health is readiness: it stays red until migrations have been applied, which
       # is exactly what `web`'s depends_on wants to wait for.
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

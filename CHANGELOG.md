@@ -63,6 +63,14 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 - The web container listens on 8080 (was 80), from `PORT`.
 
 ### Fixed
+- **The API container's healthcheck could never pass.** It ran
+  `wget -qO- .../api/health`, but `mcr.microsoft.com/dotnet/aspnet:9.0` is
+  Debian-slim and ships neither `wget` nor `curl` — so it exited 127 every
+  time, the container was marked unhealthy while the API was serving fine, and
+  `web`'s `depends_on: condition: service_healthy` never came up. That means
+  the documented `docker compose up` quick start had been broken; nothing
+  caught it because nothing exercised compose until the new `compose-smoke` CI
+  job did. The runtime image now installs `curl` and the healthchecks use it.
 - **Neither `.dockerignore` was ever read.** `BlackHoleSim.Api/.dockerignore`
   and `BlackHoleSim.Web/.dockerignore` looked correct, but Docker only reads a
   `.dockerignore` from the root of the build *context* — and both images build
