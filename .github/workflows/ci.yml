@@ -42,14 +42,19 @@ jobs:
   # that claim true — a committed-but-never-executed config is not a standard.
   #
   # Advisory for now, and deliberately so: .editorconfig arrived after the code did,
-  # and the existing source uses aligned assignments that `dotnet format` collapses.
-  # Turning this red before that pass lands would mean a permanently failing CI,
-  # which teaches people to ignore CI. Run `dotnet format BlackHoleSim.sln`, commit
-  # the result, then delete the continue-on-error line below.
+  # and the existing source uses aligned assignments (`opt.PermitLimit    = 5;`) that
+  # `dotnet format` collapses. Turning this red before that pass lands would mean a
+  # permanently failing CI, which teaches people to ignore CI.
+  #
+  # The tolerance is inside the step rather than `continue-on-error` on the job:
+  # continue-on-error stops the *workflow* failing but still reports the check as
+  # failed, so every pull request would carry a red X that everyone learns to scroll
+  # past — the same problem in a different place. This reports drift as a warning and
+  # passes. To make it enforcing: run `dotnet format BlackHoleSim.sln`, commit the
+  # result, and replace the if/else below with the bare command.
   format:
     name: Format check (advisory)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
 
@@ -59,7 +64,17 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: Verify formatting
-        run: dotnet format BlackHoleSim.sln --verify-no-changes --severity error
+        run: |
+          if dotnet format BlackHoleSim.sln --verify-no-changes --severity error; then
+            echo "No formatting drift." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::Formatting drift found. Run 'dotnet format BlackHoleSim.sln' and commit the result. Advisory — not failing the build."
+            {
+              echo "### Formatting drift (advisory)"
+              echo
+              echo "\`dotnet format BlackHoleSim.sln\` fixes it. See the job log for the exact locations."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
   # The other half of secret scanning. The pre-commit hook catches the mistake
   # before it becomes history; this catches contributors without the hook.
