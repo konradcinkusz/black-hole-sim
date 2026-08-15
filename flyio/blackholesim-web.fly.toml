@@ -1,7 +1,7 @@
 # BlackHoleSim frontend — the Blazor WebAssembly bundle, served by nginx.
 
 app = "blackholesim-web"
-primary_region = "waw"
+primary_region = "fra"
 
 [build]
   dockerfile = "../BlackHoleSim.Web/Dockerfile"

@@ -9,7 +9,7 @@
 # nothing in this repository depends on its code.
 
 app = "blackholesim-auth"
-primary_region = "waw"
+primary_region = "fra"
 
 [build]
   # Pinned, never :latest — a floating tag turns an unrelated upstream release into an
