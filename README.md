@@ -155,7 +155,8 @@ been applied — which is what `web`'s `depends_on: service_healthy` waits for.
 
 ```bash
 curl -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
-# A private key cannot be shipped in a file anyone can download, so generate one:
+# A private key cannot be shipped in a file anyone can download, so generate one.
+# No openssl (Windows PowerShell)? See "Generating key material" below.
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-signing.pem
 docker compose -f docker-compose.ghcr.yml up
 # http://localhost:8080
@@ -301,6 +302,31 @@ everyone else's renders. To drop them:
 ```sql
 DELETE FROM "RenderJobs" WHERE "OwnerId" IS NULL;
 ```
+
+### Generating key material
+
+`./scripts/setup.sh` produces everything a local run needs, including
+`secrets/jwt-signing.pem`. It is bash, so on Windows run it from Git Bash or WSL.
+
+If you have neither — or you need the deployment key rather than the local one — there is
+a PowerShell script that does the same job with no external tools:
+
+```powershell
+./scripts/new-signing-key.ps1              # writes secrets/jwt-signing.pem for local use
+./scripts/new-signing-key.ps1 -Deployment  # prints a separate key for JWT_SIGNING_KEY
+```
+
+It uses .NET's own PEM export under PowerShell 7, falls back to `openssl` on `PATH`, and
+then to the copy Git for Windows bundles. It exists because `openssl` is not a command on
+Windows, and an `openssl`-only instruction is one that fails at step one for half the
+people who read it.
+
+Use `-Deployment` for the Fly secret rather than uploading the local file. A keypair
+generated on a laptop is a development convenience, not a production trust root, and if
+the same file can serve both it eventually will.
+
+Generating the database password is in [`flyio/SECRETS.md`](flyio/SECRETS.md), with a
+command for each platform.
 
 ### Requirements on the identity service
 

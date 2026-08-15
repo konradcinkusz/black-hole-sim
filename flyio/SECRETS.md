@@ -42,14 +42,37 @@ Done once per repository, by a human, and then never again:
 1. `fly tokens create org` → store the value as `FLY_API_TOKEN` in a GitHub
    **environment** named `fly` (an environment can be reviewed and restricted;
    a repository secret cannot).
-2. Add `POSTGRES_PASSWORD` to that same environment. Generate it, do not invent it:
+2. Add `POSTGRES_PASSWORD` to that same environment. Generate it, do not invent it —
+   asking someone to make one up is how `changeme` reaches production.
+
+   Linux, macOS, or Git Bash on Windows:
 
    ```bash
-   openssl rand -base64 32 | tr -d '\n/+=' | head -c 40
+   openssl rand -hex 24
    ```
 
+   Any PowerShell, including Windows PowerShell 5.1:
+
+   ```powershell
+   $b = [byte[]]::new(24); [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [System.BitConverter]::ToString($b).Replace('-','').ToLower()
+   ```
+
+   Hex rather than raw base64 deliberately: `+`, `/`, `=` and `;` all mean something
+   inside a connection string, and the resulting bug surfaces one rotation later in a
+   component nobody was touching.
+
 3. Add `JWT_SIGNING_KEY` to that environment — a PKCS#8 RSA private key in PEM form,
-   pasted whole, `BEGIN`/`END` lines and newlines included:
+   pasted whole, `BEGIN`/`END` lines and newlines included. GitHub secrets accept
+   multi-line values.
+
+   ```powershell
+   ./scripts/new-signing-key.ps1 -Deployment
+   ```
+
+   The script is there because `openssl` is not a command on Windows, and a runbook that
+   assumes it fails at step one of somebody's first day. It uses .NET's own PEM export
+   under PowerShell 7, falls back to `openssl` on `PATH`, and then to the copy Git for
+   Windows bundles. If you would rather do it by hand and have one of those:
 
    ```bash
    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048
@@ -59,7 +82,8 @@ Done once per repository, by a human, and then never again:
    out; leaking it lets the holder mint a token as anyone, including an administrator.
    This is *not* the same key as the one `./scripts/setup.sh` generates for local
    development, and the two must never be the same file — a local keypair on a developer
-   laptop is not a production trust root.
+   laptop is not a production trust root, which is why `-Deployment` prints the key
+   instead of writing it next to the one you develop against.
 
 4. Nothing else. No `fly launch`, no app creation, no volume creation — the deploy
    workflow does all of that idempotently, which is what lets the whole deployment
@@ -153,7 +177,8 @@ and its tier. The values there are local-only defaults against a throwaway conta
 they are not, and must never become, the deployed ones.
 
 The local token signing key is the same story: `./scripts/setup.sh` generates one into
-`secrets/jwt-signing.pem`, which is gitignored, mounted into the local identity service,
+`secrets/jwt-signing.pem` (on Windows, `./scripts/new-signing-key.ps1` does the same
+thing), which is gitignored, mounted into the local identity service,
 and has nothing to do with `JWT_SIGNING_KEY` above. If it is missing, the identity service
 falls back to symmetric signing, publishes an empty key set, and the API rejects every
 token it issues — the AppHost fails with that message rather than letting you find out

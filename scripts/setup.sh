@@ -87,7 +87,9 @@ elif command -v openssl >/dev/null 2>&1; then
   ok "Generated an RSA keypair into $KEY_PATH (gitignored)"
 else
   die "openssl not found, and it is needed to generate the token signing key.
-     Generate one by hand, then re-run:
+     Use the PowerShell script instead, which needs no external tool, then re-run:
+       ./scripts/new-signing-key.ps1
+     Or generate one by hand:
        mkdir -p secrets
        openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out $KEY_PATH"
 fi
