@@ -315,6 +315,21 @@ jobs:
       - name: Setup flyctl
         uses: superfly/flyctl-actions/setup-flyctl@master
 
+      # Every other app is created as a side effect of something else: Postgres by its
+      # own volume step, the API and Web by the build job, which has to create an app
+      # before it can push to `registry.fly.io/<app>`. This one builds nothing, so it
+      # rides on neither — and `flyctl secrets set` below is the first command to name
+      # it, which fails with "Could not find App" rather than creating it.
+      - name: Ensure the app exists
+        run: |
+          set -euo pipefail
+          APP="${{ env.APP_AUTH }}"
+          if flyctl apps list --json | jq -e --arg a "$APP" '.[] | select((.Name // .name) == $a)' >/dev/null; then
+            echo "App $APP already exists."
+          else
+            flyctl apps create "$APP" --org "${FLY_ORG:-personal}" --yes
+          fi
+
       - name: Set secrets
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}

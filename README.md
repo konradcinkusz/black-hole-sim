@@ -1,6 +1,6 @@
 # BlackHoleSim
 
-[![CI](https://github.com/konradcinkusz/BlackHoleSim/actions/workflows/ci.yml/badge.svg)](https://github.com/konradcinkusz/BlackHoleSim/actions/workflows/ci.yml)
+[![Deploy to Fly.io](https://github.com/konradcinkusz/black-hole-sim/actions/workflows/flyio.yml/badge.svg)](https://github.com/konradcinkusz/black-hole-sim/actions/workflows/flyio.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
 [![.NET 9](https://img.shields.io/badge/.NET-9.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/9.0)
 
@@ -85,7 +85,6 @@ database and its own signing key, and nothing here compiles against it.
 |---|---|---|
 | **Aspire (recommended for dev)** | `dotnet run --project BlackHoleSim.AppHost` | .NET 9 SDK + Docker (Postgres and the identity service run as containers Aspire manages for you) |
 | Docker Compose | `docker compose up --build` | Docker only, no SDK |
-| **GHCR (no clone)** | see below | Docker only — no clone, no SDK |
 | **Fly.io (deployed)** | push a `v*` tag | a Fly account; see below |
 | From source, no orchestration | see below | .NET 9 SDK + a reachable Postgres |
 | Console renderer only | `dotnet run --project BlackHoleSim.ConsoleApp` | .NET 9 SDK, nothing else |
@@ -150,21 +149,6 @@ through `Cors__AllowedOrigins__0`.
 Migrations run in a background service *after* the API starts listening, and
 retry while Postgres is still coming up. `/health` stays red until they have
 been applied — which is what `web`'s `depends_on: service_healthy` waits for.
-
-### GHCR — no clone, just pull
-
-```bash
-curl -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
-# A private key cannot be shipped in a file anyone can download, so generate one:
-openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-signing.pem
-docker compose -f docker-compose.ghcr.yml up
-# http://localhost:8080
-```
-
-Pulls the pre-built images from `.github/workflows/build-containers.yml`
-(published on tagged releases) instead of building locally. No repository
-checkout needed. **No release has been tagged yet**, so `latest` doesn't
-exist until the first one is — until then, use Aspire or Docker Compose.
 
 ### Fly.io — the deployed environment
 
@@ -312,8 +296,8 @@ The pinned tag must be one that signs with **RS256 and publishes a JWKS**. An HS
 build serves a valid but empty key set, and the API then rejects every token it issues.
 That is not a theoretical guard against some future tag — it is why moving this pin
 backwards would break sign-in rather than merely regress features.
-The image tag lives in `flyio/blackholesim-auth.fly.toml`, `docker-compose.yml` and
-`docker-compose.ghcr.yml` (`AUTH_IMAGE_TAG`), and `BlackHoleSim.AppHost/Program.cs`.
+The image tag lives in `flyio/blackholesim-auth.fly.toml`, `docker-compose.yml`
+(`AUTH_IMAGE_TAG`), and `BlackHoleSim.AppHost/Program.cs`.
 
 Its `Jwt__Issuer` and `Jwt__Audience` must equal this API's `Auth__Issuer` and
 `Auth__Audience` exactly — both are set to `BlackHoleSim` rather than the upstream
@@ -332,7 +316,7 @@ other's tokens.
 | `AUTH_POSTGRES_DB` | `.env` | The identity service's own logical database on the shared Postgres instance. It creates the database itself on first start. |
 | `API_BASE_URL` | container env (`docker-compose.yml`, `flyio/blackholesim-web.fly.toml`) | Where the frontend should call the API. Written into `wwwroot/appsettings.json` at container start, never baked into the bundle. |
 | `Cors__AllowedOrigins__0` | container env | Origins the API accepts browser calls from. Overrides the built-in dev defaults (`5173`/`5080`). |
-| `ConnectionStrings:Default` | `BlackHoleSim.Api/appsettings*.json` | Npgsql connection string. Overridden by Compose/GHCR env vars in containers; injected by Aspire under this exact key when running via `BlackHoleSim.AppHost` (the Postgres database resource is deliberately named `Default` to match) |
+| `ConnectionStrings:Default` | `BlackHoleSim.Api/appsettings*.json` | Npgsql connection string. Overridden by Compose env vars in containers; injected by Aspire under this exact key when running via `BlackHoleSim.AppHost` (the Postgres database resource is deliberately named `Default` to match) |
 | `ApiBaseUrl` | `BlackHoleSim.Web/wwwroot/appsettings*.json` | Where the WASM app points its `HttpClient`. `http://localhost:5080` in dev; in a container the file is **overwritten at start** from `API_BASE_URL`. Empty is treated the same as unset and falls back to the host's own origin. |
 | `AuthBaseUrl` | `BlackHoleSim.Web/wwwroot/appsettings*.json` | Where the browser reaches the identity service, written at container start from `AUTH_BASE_URL`. Unlike `ApiBaseUrl` there is **no same-origin fallback** — the identity service is always its own app on its own hostname, and the bundle refuses to start rather than post credentials at itself. |
 | `Auth:Authority` | `BlackHoleSim.Api/appsettings*.json`, container env | Base URL whose `/.well-known/openid-configuration` names the JWKS this API validates tokens against. **Required** — the API will not start without it. |

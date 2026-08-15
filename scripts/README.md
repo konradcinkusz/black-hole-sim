@@ -6,7 +6,7 @@ can be run alone from anywhere.
 | Script | What it does |
 |---|---|
 | `setup.sh` | One-command onboarding. Prerequisites → `.env` → generated database password → optional pre-commit hook → restore and build. |
-| `ci-local.sh` | Runs the CI jobs from `.github/workflows/ci.yml` locally, so a red build is debuggable without pushing. |
+| `ci-local.sh` | Tests, formatting, secret scan, dependency audit, image builds and a compose smoke test. No workflow runs these — this script *is* the check, not a local rehearsal of one. |
 
 ```bash
 ./scripts/setup.sh

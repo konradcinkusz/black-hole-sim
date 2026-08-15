@@ -49,7 +49,7 @@ them is visible from reading the repository — only from trying:
 | 4 | Emits OTLP traces, metrics and logs | ✅* | Instrumented and exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, which the Aspire AppHost does automatically. The asterisk is honest: **no collector is deployed on Fly**, so in the deployed environment the instrumentation is dormant rather than dark. Turning it on is one `[env]` line, not a code change. |
 | 5 | Owns its database; no other service connects to it | ✅ | One service, one database, one connection string. |
 | 6 | Schema applied by `MigrateAsync` from migrations, in a hosted service | ✅ | `DatabaseMigrationService`. Was `Migrate()` inline before `app.Run()`. |
-| 7 | Configuration from the environment; no secret in source; secret scanner in CI | ✅ | CORS and the API address became configuration. gitleaks runs as a pre-commit hook *and* a CI job. |
+| 7 | Configuration from the environment; no secret in source; secret scanner in CI | ◐ | CORS and the API address became configuration, and that half still holds. The scanner no longer does: `ci.yml` was deleted when the repository moved to Fly-only workflows, so gitleaks runs as a pre-commit hook and on demand from `scripts/ci-local.sh`, both of which a contributor can simply not have. The standard asks for a scanner nobody can skip; a local hook is not that. |
 | 8 | One service holds a signing key; others validate against its JWKS | **n/a** | The system has no authentication. Every endpoint is public by design — it renders pictures of a black hole. Recorded as not-applicable rather than passed: the day a job is owned by a user, this becomes a real gap. |
 | 9 | The shared kernel holds no entity, DTO, enum or user-facing string | ✅* | The two roles of the reference diagram are now both present and correctly separated: `BlackHoleSim.ServiceDefaults` is the **kernel** (plumbing only — telemetry, health, discovery, resilience; ~130 lines, well under the ~800 ceiling), and `BlackHoleSim.Shared` is **Contracts** (`RenderParameters`, `RenderJobDto`, `RenderJobStatus` — DTOs crossing a boundary, exactly what belongs there). The asterisk: no architecture test or CI size check enforces it stays that way. |
 | 10 | Every optional integration has a working no-op or fallback | **n/a** | There are no optional integrations. The database is mandatory. What did change: a failed migration now leaves the API up and reporting the failure on `/health`, rather than crash-looping — a process that exits cannot tell you why. |
@@ -62,7 +62,8 @@ them is visible from reading the repository — only from trying:
 | 17 | Built by the tag-driven workflow with path-based change detection | ✅ | `.github/workflows/flyio.yml`. |
 | 18 | Architectural decisions recorded in `docs/` | ✅ | This file, plus `flyio/INFRASTRUCTURE-ANALYSIS.md` and `flyio/SECRETS.md`. |
 
-**15 pass, 2 not applicable, 0 fail, 1 partial** — from 4 passing before this work began.
+**14 pass, 2 not applicable, 0 fail, 2 partial** — from 4 passing before this work began.
+Item 7 was a pass until the CI workflow was removed; see §7.
 
 ---
 
@@ -116,12 +117,12 @@ Everything below was absent before this work — there was no `flyio/` directory
 | PR + issue templates | ✅ | Already present. |
 | Real `.gitattributes` | ✅ | Was the stock template with every rule commented out — one live line, `* text=auto`. Now has rules that matter, including `*.sh eol=lf`, without which the container entrypoint fails with `no such file or directory` after a Windows clone. |
 | Exclusion-based `.dockerignore` | ✅ | **This was the sharpest finding.** `BlackHoleSim.Api/.dockerignore` and `BlackHoleSim.Web/.dockerignore` existed and looked right, but Docker reads `.dockerignore` only from the root of the build *context* — and both builds use `context: .`. Neither file had ever been consulted; every image build was uploading `.git`, `docs/` and the sample renders to the daemon. Replaced with a root file and the dead ones deleted. |
-| Secret scanning: pre-commit **and** CI | ✅ | gitleaks in both, `.gitleaks.toml` allowlisting exactly one thing — the localhost dev connection string — with the reason written next to it. |
-| CodeQL / SAST + dependency audit in CI | ✅ | Both added. The audit inspects output rather than trusting the exit code: `dotnet list package --vulnerable` exits 0 even when it finds something. |
-| CI runs the linters the repo claims | ◐ | `dotnet format --verify-no-changes` added but **advisory** — it reports drift as a warning rather than failing. `.editorconfig` arrived after the code did, and the first run confirmed the expected drift: aligned assignments in `RenderWorker.cs`, `RenderJobMapping.cs`, `Program.cs`, `StatusBadge.cs` and four test files, plus import ordering in `PngEncoder.cs`. All of it pre-existing — none was introduced by this change. Making it blocking before a formatting pass lands would mean permanently red CI, which teaches people to ignore CI. The pass itself was not done here: it is ~45 whitespace edits across files this change does not otherwise touch, and with no SDK available to run `dotnet format` they would have to be applied by hand and unverified. It is a clean standalone commit for someone with a working SDK. |
+| Secret scanning: pre-commit **and** CI | ◐ | gitleaks remains as a pre-commit hook and in `scripts/ci-local.sh`, with `.gitleaks.toml` allowlisting exactly one thing — the localhost dev connection string — with the reason written next to it. The CI half is gone with `ci.yml`, so the "and" in this row is no longer true: a contributor who never ran `pre-commit install` is scanned by nothing. |
+| CodeQL / SAST + dependency audit in CI | ❌ | Both existed and both were deleted with `ci.yml`. The dependency audit survives as `./scripts/ci-local.sh audit` — still inspecting output rather than trusting the exit code, because `dotnet list package --vulnerable` exits 0 even when it finds something — but nothing runs it unprompted. CodeQL has no local equivalent and is simply gone; GitHub's own default setup could restore it without adding a workflow file. |
+| CI runs the linters the repo claims | ❌ | `dotnet format --verify-no-changes` ran as an advisory job and went with `ci.yml`; `./scripts/ci-local.sh format` is what is left. The drift it reported is still there and still pre-existing: aligned assignments in `RenderWorker.cs`, `RenderJobMapping.cs`, `Program.cs`, `StatusBadge.cs` and four test files, plus import ordering in `PngEncoder.cs`. That is ~45 whitespace edits and a clean standalone commit for someone with a working SDK. |
 | One-command onboarding | ✅ | `scripts/setup.sh`: numbered steps, prerequisites with install pointers, generated password rather than an invented one, optional steps labeled with what degrades if skipped. |
 | Operational scripts + README with variable tiers | ✅ | `scripts/README.md`, including a troubleshooting table keyed on literal error text. No deploy scripts, deliberately: provisioning lives in the workflow, not in a laptop's shell history. |
-| Retired workflows archived, not comment-disabled | ✅ | Nothing retired. |
+| Retired workflows archived, not comment-disabled | ✅ | `ci.yml` and `build-containers.yml` were retired by deleting them, which is what this asks for — no commented-out job bodies, no `if: false`. Git history is the archive. |
 | AI agent definitions in the repo | ❌ | There are none — no `.claude/agents/` or `.github/agents/`. Not invented here: an agent definition with no one using it is decoration, and the standards' own agents (§8) cover the review case from the standards repository. |
 | README claims verified | ✅ | The README described the nginx `/api/*` proxy and a same-origin frontend, both of which this change removes. Updated, along with the health endpoints, ports and configuration table. A stale README is a review finding. |
 | One named source of truth per environment variable | ✅ | Stated in the README's configuration section. |
@@ -257,6 +258,17 @@ existed before, because nothing ran the stack.
 
 The remaining honest gap is the deploy itself. Everything it depends on is verified;
 the tag-driven pipeline has never been executed against a real Fly organisation.
+
+> **Since superseded.** The four CI jobs named above — `build-and-test`,
+> `docker-build-api`, `docker-build-web`, `compose-smoke` — verified this change set at
+> the time and then were deleted with `ci.yml`, when the repository narrowed to Fly-only
+> workflows. The record above stands as history; do not read it as a description of what
+> runs today. Of the checks it names, only the build and tests still run automatically,
+> in the `test` job of `flyio.yml`, and only when a release tag is pushed. The image
+> builds and the compose smoke test run nowhere but `./scripts/ci-local.sh`. The bug
+> `compose-smoke` caught — a healthcheck probing `localhost` inside a container where
+> Kestrel binds `[::]` — is exactly the class of failure that now has nothing watching
+> for it.
 
 ---
 

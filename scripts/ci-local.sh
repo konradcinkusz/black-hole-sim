@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Reproduces the CI jobs from .github/workflows/ci.yml 1:1, so a red build can be
-# debugged without pushing a commit and waiting for a runner.
+# Build, test, formatting, secret scan, dependency audit, image builds and a compose
+# smoke test. These used to run in .github/workflows/ci.yml on every push; that workflow
+# is gone and only the Fly.io deploy remains, so this script is not a local rehearsal of
+# CI any more — it is the check itself, and nothing runs it but you.
 #
 #   ./scripts/ci-local.sh              # everything
 #   ./scripts/ci-local.sh test         # one job

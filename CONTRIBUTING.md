@@ -50,7 +50,11 @@ BlackHoleSim.Tests/        xUnit tests
 1. **Fork** the repository and create a feature branch from `master` (the default branch).
 2. Keep changes focused — one logical change per PR.
 3. Add or update tests for any new logic in `BlackHoleSim.Core` or `BlackHoleSim.Api`.
-4. Run `dotnet build` and `dotnet test` before pushing. CI runs both on every PR.
+4. Run `dotnet build` and `dotnet test` before pushing. Nothing checks a pull request for
+   you — the only workflow here is the Fly.io deploy, which runs the tests when a release
+   tag is pushed. By then the change is already merged, so a red build is your own review's
+   job to catch. `./scripts/ci-local.sh` runs the full set (tests, formatting, secret scan,
+   dependency audit, image builds, compose smoke test) in one command.
 5. Open a pull request against `master`. Explain *why* the change is needed, not just what it does.
 
 ## Architecture notes
