@@ -21,30 +21,59 @@ services:
     build:
       context: .
       dockerfile: BlackHoleSim.Api/Dockerfile
+    ports:
+      # Published because the browser calls the API directly now — the frontend no
+      # longer proxies it. See the comment on `web` below.
+      - "${API_PORT:-5081}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT:        Production
       ASPNETCORE_URLS:               http://+:8080
       ConnectionStrings__Default:    "Host=db;Port=5432;Database=${POSTGRES_DB:-blackholesim};Username=${POSTGRES_USER:-blackhole};Password=${POSTGRES_PASSWORD:-blackhole}"
+      # The frontend's origin, so the browser's cross-origin calls are allowed.
+      Cors__AllowedOrigins__0:       "http://localhost:${WEB_PORT:-8080}"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      # /health is readiness: it stays red until migrations have been applied, which
+      # is exactly what `web`'s depends_on wants to wait for.
+      #
+      # Both address families are tried rather than `localhost`, on purpose. Kestrel
+      # logs `Now listening on: http://[::]:8080`, and whether that one socket also
+      # answers on 127.0.0.1 depends on dual-stack support in the container — which
+      # is not something a health probe should be quietly betting on. `localhost`
+      # additionally leaves the order of the two up to the resolver.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || curl -fsS http://[::1]:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   # ── Blazor WASM frontend (nginx) ───────────────────────────────────────────
+  # nginx used to reverse-proxy /api/ to the `api` service, which made the two a
+  # single origin locally. That trick does not survive deployment: on a platform
+  # where each service is its own app with its own hostname there is no `api` to
+  # resolve. The browser now calls the API by its real address, given here at
+  # container start, and the same image runs unchanged in every environment.
   web:
     build:
       context: .
       dockerfile: BlackHoleSim.Web/Dockerfile
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      PORT:         "8080"
+      # Resolved by the *browser*, not by this container, so it is a host address.
+      API_BASE_URL: "http://localhost:${API_PORT:-5081}"
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || wget -qO- http://[::1]:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:

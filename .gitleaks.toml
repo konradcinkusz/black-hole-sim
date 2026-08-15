@@ -1,0 +1,30 @@
+# gitleaks configuration.
+#
+# Runs in two places on purpose: a pre-commit hook, which catches the mistake before
+# it becomes history, and a CI job, which catches contributors who never installed
+# the hook. Either alone leaves a gap.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local-only development defaults"
+
+paths = [
+  # Documents variables and their tiers; carries no live values by construction.
+  '''^\.env\.example$''',
+  # Explains how secrets are handled. Naming a secret is not leaking one.
+  '''^flyio/SECRETS\.md$''',
+]
+
+regexes = [
+  # The API's committed fallback connection string. It points at localhost with the
+  # throwaway password that docker-compose and the Aspire AppHost also use, so that
+  # `dotnet run` works on a fresh clone with nothing configured. Every deployed
+  # environment overrides it via ConnectionStrings__Default (see flyio/SECRETS.md).
+  #
+  # Allowlisted narrowly — Host=localhost is load-bearing in this pattern. A real
+  # credential cannot match it, because a real credential does not point at
+  # localhost.
+  '''Host=localhost;Port=5432;Database=blackholesim;Username=blackhole;Password=blackhole''',
+]

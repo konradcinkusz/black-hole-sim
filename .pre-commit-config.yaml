@@ -1,0 +1,29 @@
+# Install once per clone:
+#
+#   pip install pre-commit && pre-commit install
+#
+# `scripts/setup.sh` does it for you. The hook is the half of secret scanning that
+# runs before a mistake becomes history — the CI job in ci.yml is the half that
+# covers contributors who skipped this.
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        # Renders belong in the database, not in git history.
+        args: ["--maxkb=2048"]
+      # Deliberately no mixed-line-ending hook: .gitattributes already decides line
+      # endings per file type, and it disagrees with a blanket --fix=lf on .sln and
+      # .ps1. Two tools normalising the same thing differently is how a repository
+      # gets a permanently dirty working tree.

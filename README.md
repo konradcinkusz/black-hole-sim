@@ -19,10 +19,10 @@ same code path.
 ```bash
 git clone https://github.com/konradcinkusz/BlackHoleSim.git
 cd BlackHoleSim
-cp .env.example .env
+./scripts/setup.sh        # prerequisites, .env, a generated DB password
 docker compose up --build
 # web UI:  http://localhost:8080
-# API:     http://localhost:8080/api  (proxied by the web container's nginx)
+# API:     http://localhost:5081/api
 ```
 
 ---
@@ -62,6 +62,7 @@ Reproduce any of these directly with the console renderer:
 |---|---|---|
 | `BlackHoleSim.Core` | Physics (Schwarzschild metric, RK4 integrator), the raytracer, PPM/PNG encoding | — |
 | `BlackHoleSim.Shared` | DTOs shared by API and Web (`RenderParameters`, `RenderJobDto`, `RenderJobStatus`) | — |
+| `BlackHoleSim.ServiceDefaults` | Shared kernel — OpenTelemetry, `/health` + `/alive`, service discovery, HTTP resilience. Plumbing only: no entities, no physics, nothing about black holes | — |
 | `BlackHoleSim.ConsoleApp` | One-shot CLI renderer → `.ppm` file | Core |
 | `BlackHoleSim.Api` | ASP.NET Core minimal API: submits render jobs to a channel-backed queue, a hosted `RenderWorker` processes them, Postgres (EF Core) persists job state + the finished PNG | Core, Shared |
 | `BlackHoleSim.Web` | Blazor WebAssembly UI: render form with live progress polling, paginated gallery, delete | Shared |
@@ -75,6 +76,7 @@ Reproduce any of these directly with the console renderer:
 | **Aspire (recommended for dev)** | `dotnet run --project BlackHoleSim.AppHost` | .NET 9 SDK + Docker (Postgres runs as a container Aspire manages for you) |
 | Docker Compose | `docker compose up --build` | Docker only, no SDK |
 | **GHCR (no clone)** | see below | Docker only — no clone, no SDK |
+| **Fly.io (deployed)** | push a `v*` tag | a Fly account; see below |
 | From source, no orchestration | see below | .NET 9 SDK + a reachable Postgres |
 | Console renderer only | `dotnet run --project BlackHoleSim.ConsoleApp` | .NET 9 SDK, nothing else |
 
@@ -91,6 +93,15 @@ waiting on each other in the right order. Opens the Aspire dashboard
 click through to the Web UI from there. F5 in an IDE on the AppHost project
 does the same with debuggers attached to everything.
 
+The traces are real, not just forwarded console output: `BlackHoleSim.Api` calls
+`AddServiceDefaults()` from `BlackHoleSim.ServiceDefaults`, which instruments
+ASP.NET Core, `HttpClient` and the runtime with OpenTelemetry and exports over
+OTLP to whatever `OTEL_EXPORTER_OTLP_ENDPOINT` names — the AppHost sets that to
+the dashboard for you. Health probes are filtered out of traces, or they would
+be nearly every span. Set no endpoint and the exporter is not registered at all,
+so a bare `dotnet run` neither exports nor retries against a collector that
+isn't there.
+
 The API and Web ports are pinned (not Aspire's usual random-port allocation)
 because the Blazor WebAssembly client can't do Aspire service discovery — it
 runs in the browser, not in an orchestrated process — so both sides need to
@@ -100,17 +111,29 @@ already allowlists exactly `5080`/`5173`.
 ### Docker Compose (API + Web + Postgres, no SDK)
 
 ```bash
-cp .env.example .env      # adjust POSTGRES_* / WEB_PORT if needed
+./scripts/setup.sh        # or: cp .env.example .env
 docker compose up --build
 ```
 
 This starts three containers (`docker-compose.yml`): `db` (Postgres 16),
-`api` (ASP.NET Core; migrations run on every startup, not just in
-Development — see CHANGELOG), and `web` (the Blazor WASM app served by
-nginx, which also proxies `/api/*` to the API container). Open
+`api` (ASP.NET Core, published on `${API_PORT:-5081}`), and `web` (the Blazor
+WASM app served by nginx on `${WEB_PORT:-8080}`). Open
 `http://localhost:${WEB_PORT:-8080}`, submit a render from the form, and
 watch it go `Pending → Running → Completed` with a live progress bar;
 finished renders land in the gallery.
+
+The browser calls the API directly rather than through an nginx proxy. nginx
+used to reverse-proxy `/api/*` to the `api` container, which made the two a
+single origin locally — but that trick does not survive deployment, where each
+service is its own app with its own hostname and there is no `api` to resolve.
+The API address is written into `wwwroot/appsettings.json` when the web
+container starts (from `API_BASE_URL`), so the same image runs unchanged
+locally and deployed, and the API allows the frontend's origin explicitly
+through `Cors__AllowedOrigins__0`.
+
+Migrations run in a background service *after* the API starts listening, and
+retry while Postgres is still coming up. `/health` stays red until they have
+been applied — which is what `web`'s `depends_on: service_healthy` waits for.
 
 ### GHCR — no clone, just pull
 
@@ -124,6 +147,33 @@ Pulls the pre-built images from `.github/workflows/build-containers.yml`
 (published on tagged releases) instead of building locally. No repository
 checkout needed. **No release has been tagged yet**, so `latest` doesn't
 exist until the first one is — until then, use Aspire or Docker Compose.
+
+### Fly.io — the deployed environment
+
+Three apps, one per service: `blackholesim-web` (the bundle, scales to zero),
+`blackholesim-api` (one machine always up, so a background render is not stopped
+mid-flight), and `blackholesim-postgres` (private network only, no public IP).
+
+Deploying is pushing a tag:
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+`.github/workflows/flyio.yml` then tests, works out what changed since the
+*previous tag*, builds each changed image exactly once, and deploys
+postgres → api → web. A service whose Fly app does not exist is always treated
+as changed, so the first tag against an empty Fly organisation provisions
+everything — no `fly launch`, no app or volume created by hand.
+
+One-time human setup, and nothing more: create a GitHub environment named `fly`
+holding `FLY_API_TOKEN` and `POSTGRES_PASSWORD`. Both are described in
+[`flyio/SECRETS.md`](flyio/SECRETS.md); sizing and cost reasoning are in
+[`flyio/INFRASTRUCTURE-ANALYSIS.md`](flyio/INFRASTRUCTURE-ANALYSIS.md).
+
+Scaling and teardown are the **Fly.io scale** and **Fly.io destroy** workflows in
+the Actions tab. Destroy needs a typed confirmation and keeps the data volume
+unless you say otherwise; after one, a single tag brings everything back.
 
 ### From source, no orchestration
 
@@ -169,8 +219,18 @@ dotnet test BlackHoleSim.sln -c Release
 |---|---|---|
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `.env` (see `.env.example`) | Postgres credentials used by both the `db` and `api` containers |
 | `WEB_PORT` | `.env` | Host port the web container is published on (default `8080`) |
+| `API_PORT` | `.env` | Host port the API is published on (default `5081`). The browser calls this directly, so it also feeds the API's CORS allowlist — `docker-compose.yml` wires both from this one variable. |
+| `API_BASE_URL` | container env (`docker-compose.yml`, `flyio/blackholesim-web.fly.toml`) | Where the frontend should call the API. Written into `wwwroot/appsettings.json` at container start, never baked into the bundle. |
+| `Cors__AllowedOrigins__0` | container env | Origins the API accepts browser calls from. Overrides the built-in dev defaults (`5173`/`5080`). |
 | `ConnectionStrings:Default` | `BlackHoleSim.Api/appsettings*.json` | Npgsql connection string. Overridden by Compose/GHCR env vars in containers; injected by Aspire under this exact key when running via `BlackHoleSim.AppHost` (the Postgres database resource is deliberately named `Default` to match) |
-| `ApiBaseUrl` | `BlackHoleSim.Web/wwwroot/appsettings*.json` | Where the WASM app points its `HttpClient`; empty in prod (nginx proxies same-origin — empty is treated the same as unset), `http://localhost:5080` in dev |
+| `ApiBaseUrl` | `BlackHoleSim.Web/wwwroot/appsettings*.json` | Where the WASM app points its `HttpClient`. `http://localhost:5080` in dev; in a container the file is **overwritten at start** from `API_BASE_URL`. Empty is treated the same as unset and falls back to the host's own origin. |
+
+**One source of truth per variable.** Where the same value is defined in more
+than one place, the authoritative one is: `.env` for local Compose runs,
+`flyio/*.fly.toml` `[env]` for deployed non-secret config, and Fly secrets
+(set by `.github/workflows/flyio.yml`) for anything secret. The checked-in
+`appsettings*.json` values are fallbacks for a bare `dotnet run`, and are
+overridden everywhere else.
 
 Render parameters (`RenderParameters` in `BlackHoleSim.Shared`), settable per-job via the API/Web form or by editing defaults in code:
 
@@ -190,7 +250,9 @@ Render parameters (`RenderParameters` in `BlackHoleSim.Shared`), settable per-jo
 | `GET /api/jobs/{id}` | Job status/progress |
 | `GET /api/jobs/{id}/image` | Finished PNG (404 until `Completed`) |
 | `DELETE /api/jobs/{id}` | Cancel (if running) and delete a job |
-| `GET /api/health`, `/api/health/db` | Health checks (incl. Postgres connectivity) |
+| `GET /health` | **Readiness.** Every check: Postgres connectivity *and* whether migrations have been applied. Red (503) until the schema is usable, which is what a deploy waits on. |
+| `GET /alive` | **Liveness.** Live-tagged checks only — "is this process running". A database outage must not be able to trigger a restart loop through it. |
+| `GET /api/health`, `/api/health/db` | The pre-existing paths, kept so bookmarks and older compose files keep working. `/api/health` is `/health` under its old name. |
 
 Jobs run on a hosted `RenderWorker` reading off an in-process channel queue
 (`ChannelRenderJobQueue`); on API restart, any job left `Running` is reset to

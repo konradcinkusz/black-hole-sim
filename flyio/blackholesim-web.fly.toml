@@ -1,0 +1,42 @@
+# BlackHoleSim frontend — the Blazor WebAssembly bundle, served by nginx.
+
+app = "blackholesim-web"
+primary_region = "waw"
+
+[build]
+  dockerfile = "../BlackHoleSim.Web/Dockerfile"
+  context = ".."
+
+[env]
+  PORT = "8080"
+  # Read by the browser, not by this container. Written into
+  # wwwroot/appsettings.json at container start, which is what keeps one image
+  # promotable instead of one image per environment.
+  API_BASE_URL = "https://blackholesim-api.fly.dev"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Nothing calls this except a browser, and the proxy starts a stopped machine on
+  # the first request. A cold start here is a slow first page, not a failed call.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 250
+    soft_limit = 200
+
+  [[http_service.checks]]
+    # A dedicated endpoint, not "/": a broken bundle still returns 200 for the index
+    # page, so a check pointed there would pass on a white screen.
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  # Static files only.
+  size = "shared-cpu-1x"
+  memory = "256mb"

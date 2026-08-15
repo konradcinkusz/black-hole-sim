@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Settings shared by every project in the solution. Before this file existed the
+    same four properties were repeated in each of the seven .csproj files, which is
+    how they drift: a new project copies whichever sibling was nearest, and nobody
+    notices that one of them is a version behind.
+
+    Package versions are deliberately NOT centralized here yet — see
+    docs/architecture/COMPLIANCE.md for why that step is held back.
+  -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- Reproducible output: the same source produces the same assembly bytes,
+         which is what makes "did this image actually change" answerable. -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Shared identity, so a package or assembly can be traced back here. -->
+    <Authors>konradcinkusz</Authors>
+    <Product>BlackHoleSim</Product>
+    <RepositoryUrl>https://github.com/konradcinkusz/black-hole-sim</RepositoryUrl>
+  </PropertyGroup>
+
+</Project>

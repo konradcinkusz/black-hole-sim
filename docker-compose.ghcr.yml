@@ -2,7 +2,7 @@
 #   Linux/macOS/Git Bash: curl -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
 #   Windows PowerShell:   curl.exe -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
 #   docker compose -f docker-compose.ghcr.yml up
-# Web UI: http://localhost:8080  (nginx in the web image proxies /api/* to the api container)
+# Web UI: http://localhost:8080, calling the API on http://localhost:5081.
 services:
 
   db:
@@ -22,27 +22,40 @@ services:
 
   api:
     image: ghcr.io/konradcinkusz/blackholesim-api:latest
+    ports:
+      # The browser calls the API directly; the web image no longer proxies it.
+      - "${API_PORT:-5081}:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Default: "Host=db;Port=5432;Database=blackholesim;Username=blackhole;Password=blackhole"
+      Cors__AllowedOrigins__0: "http://localhost:${WEB_PORT:-8080}"
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || curl -fsS http://[::1]:8080/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   web:
     image: ghcr.io/konradcinkusz/blackholesim-web:latest
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-8080}:8080"
+    environment:
+      PORT: "8080"
+      API_BASE_URL: "http://localhost:${API_PORT:-5081}"
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || wget -qO- http://[::1]:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
 volumes:

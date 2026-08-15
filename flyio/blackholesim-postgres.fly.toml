@@ -1,0 +1,37 @@
+# Postgres for BlackHoleSim.
+#
+# Deliberately has no [http_service] and no [[services]]: this is reached only at
+# blackholesim-postgres.internal:5432 over the organisation's private network. A
+# database with a public listener is a database waiting to be scanned.
+#
+# Deploy with --ha=false. A volume is a local disk pinned to one machine, so a
+# second machine would come up with a second *empty* volume, not a replica.
+
+app = "blackholesim-postgres"
+primary_region = "waw"
+
+[build]
+  # A vanilla postgres image, not Fly's managed postgres-flex — flex expects
+  # cluster-style bootstrapping and never initializes under a plain `flyctl deploy`.
+  image = "postgres:16-alpine"
+
+[env]
+  POSTGRES_USER = "blackhole"
+  POSTGRES_DB = "blackholesim"
+  # A SUBDIRECTORY of the mount, not the mount root: the volume root carries
+  # lost+found and initdb refuses a non-empty data directory.
+  PGDATA = "/var/lib/postgresql/data/pgdata"
+  POSTGRES_INITDB_ARGS = "--encoding=UTF8 --locale=C"
+
+# POSTGRES_PASSWORD is a secret, never [env]. See SECRETS.md.
+
+[[mounts]]
+  source = "blackholesim_pgdata"
+  destination = "/var/lib/postgresql/data"
+  # Growing a volume later is possible; shrinking is not. Renders are stored as PNG
+  # blobs in RenderJobs, so this is sized for the images, not for the row count.
+  initial_size = "3gb"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

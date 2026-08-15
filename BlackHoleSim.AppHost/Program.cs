@@ -20,6 +20,9 @@ var db = postgres.AddDatabase("Default", databaseName: "blackholesim");
 var api = builder.AddProject<Projects.BlackHoleSim_Api>("api")
     .WithReference(db)
     .WaitFor(db)
+    // Readiness, so the dashboard shows the Api as starting while migrations run
+    // rather than green-but-500ing — and so WaitFor(api) below means what it says.
+    .WithHttpHealthCheck("/health")
     .WithEndpoint("http", e =>
     {
         e.Port = 5080;
