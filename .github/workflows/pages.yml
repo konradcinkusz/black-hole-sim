@@ -1,0 +1,55 @@
+# Deploys the one-pager (docs/) to GitHub Pages:
+#   https://konradcinkusz.github.io/black-hole-sim/
+#
+# The site is served from this workflow, not from a branch — Pages' "GitHub
+# Actions" source. The configure step below enables Pages on first run, so
+# nothing has to be clicked in Settings; if that step is ever denied a
+# permission instead, the one-time manual equivalent is
+# Settings → Pages → Build and deployment → Source: GitHub Actions.
+#
+# The whole docs/ folder is published as-is. It is already public repository
+# content — no build step, nothing generated, nothing to get stale.
+
+name: GitHub Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "docs/**"
+      - ".github/workflows/pages.yml"
+  # A manual run from the Actions tab, for the first deploy or a re-publish.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write      # what deploy-pages needs
+  id-token: write   # deploy-pages authenticates the artifact via OIDC
+
+# One deploy at a time, and never cancel a run that is already publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Enable and configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Package docs/ as the site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
