@@ -142,6 +142,32 @@ repository.
   arrive with no automated verification of any kind.
 
 ### Fixed
+- **The frontend downloaded itself instead of loading.** Visiting the deployed site
+  saved `index.html` to disk rather than starting the app. nginx's `types` directive
+  *replaces* the MIME map inherited from the enclosing context instead of adding to it,
+  so the two-line `types { application/wasm wasm; }` block at server level — added to
+  teach nginx about `.wasm` — discarded every other mapping the base image's
+  `mime.types` provides. `.wasm` was then the only extension nginx could name, and
+  everything else fell through to the http-level `default_type`,
+  `application/octet-stream`: a download, per the browser's reading. The mapping is now
+  scoped to a `location ~ \.wasm$`, where replacing the map affects only requests that
+  are already `.wasm`. `.html`, `.css`, `.js` and `.json` are served correctly again.
+
+  The health check could not catch this. It answers from `return 200` and touches no
+  file on disk, so it stayed green while every static asset was mistyped — the check is
+  right that a served index page proves little, but it also proves nothing about MIME
+  types.
+
+- **`/healthz` sent two `Content-Type` headers**, `application/octet-stream` from
+  `default_type` and `text/plain` from an `add_header` — `return` already emits one, so
+  adding another duplicates rather than overrides it, and a client is free to believe
+  the first. It now sets `default_type text/plain` and sends one header.
+
+- **`/appsettings.json` sent two `Cache-Control` headers.** `expires -1` emits its own
+  `no-cache` alongside the explicit `no-store, no-cache, must-revalidate`. Since
+  `no-cache` still permits a cache to *store* the response, the weaker of the two is
+  gone and the stricter one stands alone.
+
 - **The identity service could never be deployed to a Fly organisation that did not
   already contain it.** Every other app gets created as a side effect of something that
   runs before the deploy — Postgres by its own volume step, the API and Web by the build
