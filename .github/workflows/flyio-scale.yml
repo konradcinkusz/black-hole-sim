@@ -26,6 +26,7 @@ concurrency:
 
 env:
   APP_POSTGRES: blackholesim-postgres
+  APP_AUTH: blackholesim-auth
   APP_API: blackholesim-api
   APP_WEB: blackholesim-web
   FLY_REGION: waw
@@ -54,10 +55,12 @@ jobs:
             normalise)
               flyctl scale count 1 --app "${{ env.APP_API }}" --region "${{ env.FLY_REGION }}" --yes
               flyctl scale count 1 --app "${{ env.APP_WEB }}" --region "${{ env.FLY_REGION }}" --yes
+              flyctl scale count 1 --app "${{ env.APP_AUTH }}" --region "${{ env.FLY_REGION }}" --yes
               ;;
             start-all)
               flyctl machine start --app "${{ env.APP_API }}" || true
               flyctl machine start --app "${{ env.APP_WEB }}" || true
+              flyctl machine start --app "${{ env.APP_AUTH }}" || true
               flyctl machine start --app "${{ env.APP_POSTGRES }}" || true
               ;;
             scale-out)
@@ -68,6 +71,8 @@ jobs:
             wind-down)
               flyctl scale count 0 --app "${{ env.APP_API }}" --yes
               flyctl scale count 0 --app "${{ env.APP_WEB }}" --yes
+              # Nobody can sign in with this at zero, which is the point of a wind-down.
+              flyctl scale count 0 --app "${{ env.APP_AUTH }}" --yes
               echo "::notice::Stateless apps are at zero machines. Postgres is still running and still billing for its volume; use flyio-destroy to remove it."
               ;;
           esac
@@ -75,7 +80,7 @@ jobs:
       - name: Report
         if: always()
         run: |
-          for app in "${{ env.APP_POSTGRES }}" "${{ env.APP_API }}" "${{ env.APP_WEB }}"; do
+          for app in "${{ env.APP_POSTGRES }}" "${{ env.APP_AUTH }}" "${{ env.APP_API }}" "${{ env.APP_WEB }}"; do
             echo "── $app"
             flyctl machine list --app "$app" || echo "  (app not found)"
           done

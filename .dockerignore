@@ -35,6 +35,10 @@
 !.env.example
 **/appsettings.Local.json
 **/secrets.json
+# The identity service's signing keypair. It is bind-mounted into that container at run
+# time and has no business in any build context.
+secrets/
+*.pem
 
 # ── Documentation and media ───────────────────────────────────────────────────
 docs

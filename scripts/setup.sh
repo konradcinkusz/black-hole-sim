@@ -17,7 +17,7 @@ warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 die()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&2; exit 1; }
 
 # ── 1. Prerequisites ─────────────────────────────────────────────────────────
-bold "1/5  Checking prerequisites"
+bold "1/6  Checking prerequisites"
 
 if command -v dotnet >/dev/null 2>&1; then
   ok "dotnet $(dotnet --version)"
@@ -37,7 +37,7 @@ else
 fi
 
 # ── 2. Local environment file ────────────────────────────────────────────────
-bold "2/5  Local environment"
+bold "2/6  Local environment"
 
 if [ -f .env ]; then
   ok ".env already exists — leaving it alone"
@@ -49,7 +49,7 @@ fi
 # ── 3. The one mandatory secret ──────────────────────────────────────────────
 # Generated rather than invented: asking a developer to make up a password is how
 # 'changeme' reaches a deployed environment.
-bold "3/5  Database password"
+bold "3/6  Database password"
 
 if grep -q '^POSTGRES_PASSWORD=changeme$' .env; then
   if command -v openssl >/dev/null 2>&1; then
@@ -65,8 +65,35 @@ else
   ok "POSTGRES_PASSWORD is already set"
 fi
 
-# ── 4. Secret scanning hook (optional) ───────────────────────────────────────
-bold "4/5  Pre-commit hook  (optional — catches secrets before they become history)"
+# ── 4. Token signing key ─────────────────────────────────────────────────────
+# The identity service signs with RS256 and publishes the public half at its JWKS; the
+# API validates against that and holds no key material. This is the private half, and it
+# never leaves the identity service's container.
+#
+# Not optional: without it the identity service falls back to HS256, serves an empty key
+# set, and the API rejects every token it issues.
+bold "4/6  Token signing key"
+
+KEY_PATH="secrets/jwt-signing.pem"
+
+if [ -f "$KEY_PATH" ]; then
+  ok "$KEY_PATH already exists — leaving it alone"
+elif command -v openssl >/dev/null 2>&1; then
+  mkdir -p secrets
+  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$KEY_PATH" 2>/dev/null
+  # Readable by its owner only. The file is gitignored, but a keypair sitting world-readable
+  # on a shared machine is the same mistake one layer down.
+  chmod 600 "$KEY_PATH"
+  ok "Generated an RSA keypair into $KEY_PATH (gitignored)"
+else
+  die "openssl not found, and it is needed to generate the token signing key.
+     Generate one by hand, then re-run:
+       mkdir -p secrets
+       openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out $KEY_PATH"
+fi
+
+# ── 5. Secret scanning hook (optional) ───────────────────────────────────────
+bold "5/6  Pre-commit hook  (optional — catches secrets before they become history)"
 
 if command -v pre-commit >/dev/null 2>&1; then
   pre-commit install >/dev/null
@@ -77,8 +104,8 @@ else
   warn "Install with: pip install pre-commit && pre-commit install"
 fi
 
-# ── 5. Restore and build ─────────────────────────────────────────────────────
-bold "5/5  Restoring and building"
+# ── 6. Restore and build ─────────────────────────────────────────────────────
+bold "6/6  Restoring and building"
 dotnet restore BlackHoleSim.sln
 dotnet build BlackHoleSim.sln -c Debug --no-restore
 ok "Build succeeded"

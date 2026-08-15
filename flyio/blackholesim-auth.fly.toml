@@ -1,0 +1,76 @@
+# Identity service for BlackHoleSim — accounts, sign-in, and the tokens the API verifies.
+#
+# This is *this project's own instance* of konradcinkusz/authservice: its own machine, its
+# own logical database, its own signing key. It is not a shared identity provider, and its
+# key is never reused anywhere else — two projects sharing one would mean either could mint
+# tokens accepted by the other.
+#
+# Nothing here is built from source. The image is a pinned release of that repository, and
+# nothing in this repository depends on its code.
+
+app = "blackholesim-auth"
+primary_region = "waw"
+
+[build]
+  # Pinned, never :latest — a floating tag turns an unrelated upstream release into an
+  # unannounced deploy of this app. The tag must be one that signs with RS256 and publishes
+  # a JWKS: an HS256-only build serves an empty key set, and the API rejects every token it
+  # issues.
+  image = "ghcr.io/konradcinkusz/authservice:v0.3.0"
+
+[env]
+  ASPNETCORE_ENVIRONMENT = "Production"
+  # Must equal internal_port below, and binds all interfaces — a process on localhost is
+  # unreachable from the proxy.
+  ASPNETCORE_URLS = "http://+:8080"
+  DatabaseProvider = "PostgreSQL"
+
+  # Product-specific rather than the AuthService defaults. Two deployments both left on the
+  # default issuer/audience would accept each other's tokens.
+  Jwt__Issuer = "BlackHoleSim"
+  Jwt__Audience = "BlackHoleSim"
+
+  # The frontend signs in from the browser, so its origin has to be allowed explicitly.
+  Cors__AllowedOrigins__0 = "https://blackholesim-web.fly.dev"
+
+  # Used to build the `jwks_uri` in the discovery document. Without it the service would
+  # advertise whatever Host header reached it, which behind the Fly proxy is not necessarily
+  # the address a consumer can resolve.
+  Jwt__PublicBaseUrl = "https://blackholesim-auth.fly.dev"
+
+  # Fly sets this header itself and strips any client-supplied copy, so unlike
+  # X-Forwarded-For it is a trustworthy partition key for per-IP rate limiting.
+  Network__ClientIpHeader = "Fly-Client-IP"
+
+# Two secrets, both set by the deploy workflow, neither ever in this file:
+#   ConnectionStrings__DefaultConnection  — carries the database password
+#   Jwt__PrivateKeyPem                    — the RSA private key that signs every token
+# See SECRETS.md.
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+
+  # Scales to zero. Nothing here works in the background — unlike the API, whose render
+  # worker runs between requests — so an idle machine is only cost. The first sign-in after
+  # an idle period pays a cold start.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+  [[http_service.checks]]
+    # Readiness, not liveness: /health answers 200 the moment Kestrel binds, which would
+    # route sign-ins at a machine whose schema is still being created.
+    path = "/health/ready"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
