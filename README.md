@@ -304,16 +304,14 @@ DELETE FROM "RenderJobs" WHERE "OwnerId" IS NULL;
 
 ### Requirements on the identity service
 
-> **The pinned tag `v0.3.0` has not been published yet.** RS256 signing and the JWKS
-> endpoint are on `authservice`'s `main` branch but are **not** in any released tag —
-> `v0.2.0` and earlier predate that commit and sign with HS256 only. Until a release is
-> cut from `main`, `docker compose up` will fail to pull the image. Publishing one is a
-> release action on that repository (create a GitHub Release tagged `v0.3.0`, which fires
-> its `publish-image.yml`); its `workflow_dispatch` can also publish from `main` as
-> `:main` for a quick try. Point `AUTH_IMAGE_TAG` at whatever tag actually exists.
+`ghcr.io/konradcinkusz/authservice:v0.3.0` is published, and it is the first tag that
+carries RS256 signing and the JWKS endpoint — `v0.2.0` and earlier predate that work and
+sign with HS256 only. The pin needs no change: `docker compose up` pulls it as-is.
 
 The pinned tag must be one that signs with **RS256 and publishes a JWKS**. An HS256-only
 build serves a valid but empty key set, and the API then rejects every token it issues.
+That is not a theoretical guard against some future tag — it is why moving this pin
+backwards would break sign-in rather than merely regress features.
 The image tag lives in `flyio/blackholesim-auth.fly.toml`, `docker-compose.yml` and
 `docker-compose.ghcr.yml` (`AUTH_IMAGE_TAG`), and `BlackHoleSim.AppHost/Program.cs`.
 
