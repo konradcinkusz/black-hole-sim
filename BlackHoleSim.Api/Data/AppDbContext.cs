@@ -24,6 +24,11 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
 
             e.HasIndex(x => x.Status);
             e.HasIndex(x => x.CreatedAt);
+
+            // The gallery's query is "this owner's jobs, newest first", so the index carries
+            // the sort column too — otherwise every page costs a sort over the owner's whole
+            // history to return twenty rows.
+            e.HasIndex(x => new { x.OwnerId, x.CreatedAt });
         });
     }
 }

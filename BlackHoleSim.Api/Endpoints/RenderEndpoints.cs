@@ -1,3 +1,4 @@
+using BlackHoleSim.Api.Auth;
 using BlackHoleSim.Api.Data;
 using BlackHoleSim.Api.Jobs;
 using BlackHoleSim.Api.Mapping;
@@ -14,6 +15,7 @@ public static class RenderEndpoints
     public static void MapRenderEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/api/render", PostRenderAsync)
+           .RequireAuthorization()
            .RequireRateLimiting("render")
            .WithName("PostRender")
            .WithOpenApi();
@@ -40,6 +42,7 @@ public static class RenderEndpoints
         var entity = new RenderJobEntity
         {
             Id         = Guid.NewGuid(),
+            OwnerId    = http.User.OwnerId(),
             Parameters = parameters,
             Status     = RenderJobStatus.Pending,
             CreatedAt  = DateTime.UtcNow,

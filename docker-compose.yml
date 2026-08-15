@@ -16,6 +16,52 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # ── Identity service ───────────────────────────────────────────────────────
+  # Pulled, not built: this deployment runs its own independent instance of
+  # konradcinkusz/authservice — its own database, its own signing key — rather than
+  # depending on somebody else's running copy. There is no source-level dependency on
+  # that repo anywhere in this one, only this pinned image reference.
+  #
+  # It shares the `db` container but not the database: its schema lives in its own
+  # logical database, which it creates on first start, with no cross-grants to this
+  # stack's. That is the boundary database-per-service actually asks for — a second
+  # always-on Postgres purely to hold one more database is a cost decision, not an
+  # architectural one.
+  auth:
+    image: ghcr.io/konradcinkusz/authservice:${AUTH_IMAGE_TAG:-v0.3.0}
+    ports:
+      # Published because the *browser* signs in against it directly, exactly like the API.
+      - "${AUTH_PORT:-5083}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS:        http://+:8080
+      DatabaseProvider:       PostgreSQL
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=${AUTH_POSTGRES_DB:-authservice};Username=${POSTGRES_USER:-blackhole};Password=${POSTGRES_PASSWORD:-blackhole}"
+
+      # RS256. The private key stays in this container; the API gets the public half from
+      # the JWKS and can only verify. A PEM is mounted as a file rather than passed as an
+      # environment variable because .env cannot carry a multi-line value.
+      Jwt__PrivateKeyPath: /run/secrets/jwt-signing.pem
+
+      # Product-specific, not the AuthService default: two deployments both on the default
+      # issuer/audience would happily accept each other's tokens.
+      Jwt__Issuer:   BlackHoleSim
+      Jwt__Audience: BlackHoleSim
+
+      # The frontend's origin, so the browser's sign-in calls are allowed.
+      Cors__AllowedOrigins__0: "http://localhost:${WEB_PORT:-8080}"
+    volumes:
+      - ./secrets/jwt-signing.pem:/run/secrets/jwt-signing.pem:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    # No healthcheck: the image is built on the plain aspnet base and ships neither curl
+    # nor wget, so every probe worth writing would fail as "unhealthy" for want of a
+    # binary. Nothing here waits on it — the API discovers the signing keys lazily, on the
+    # first request carrying a token, so a slow identity service costs a few 401s rather
+    # than a failed boot.
+    restart: unless-stopped
+
   # ── ASP.NET Core API ───────────────────────────────────────────────────────
   api:
     build:
@@ -31,6 +77,13 @@ services:
       ConnectionStrings__Default:    "Host=db;Port=5432;Database=${POSTGRES_DB:-blackholesim};Username=${POSTGRES_USER:-blackhole};Password=${POSTGRES_PASSWORD:-blackhole}"
       # The frontend's origin, so the browser's cross-origin calls are allowed.
       Cors__AllowedOrigins__0:       "http://localhost:${WEB_PORT:-8080}"
+      # Where to fetch the signing keys. The container-internal address, not the published
+      # one: this is resolved by the API itself, not by a browser. Plain HTTP is fine on
+      # compose's own network and never leaves it.
+      Auth__Authority:               "http://auth:8080"
+      Auth__Issuer:                  "BlackHoleSim"
+      Auth__Audience:                "BlackHoleSim"
+      Auth__RequireHttpsMetadata:    "false"
     depends_on:
       db:
         condition: service_healthy
@@ -63,12 +116,17 @@ services:
     ports:
       - "${WEB_PORT:-8080}:8080"
     environment:
-      PORT:         "8080"
-      # Resolved by the *browser*, not by this container, so it is a host address.
-      API_BASE_URL: "http://localhost:${API_PORT:-5081}"
+      PORT:          "8080"
+      # Both resolved by the *browser*, not by this container, so they are host addresses.
+      API_BASE_URL:  "http://localhost:${API_PORT:-5081}"
+      AUTH_BASE_URL: "http://localhost:${AUTH_PORT:-5083}"
     depends_on:
       api:
         condition: service_healthy
+      auth:
+        # Started, not healthy: the identity service has no probe (see above), and the
+        # frontend only needs it once somebody clicks "sign in".
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || wget -qO- http://[::1]:8080/healthz || exit 1"]
       interval: 10s

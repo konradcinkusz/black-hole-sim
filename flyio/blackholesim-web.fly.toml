@@ -13,6 +13,9 @@ primary_region = "waw"
   # wwwroot/appsettings.json at container start, which is what keeps one image
   # promotable instead of one image per environment.
   API_BASE_URL = "https://blackholesim-api.fly.dev"
+  # Same story: the browser signs in against the identity service directly, so this is
+  # its public address, not an internal one.
+  AUTH_BASE_URL = "https://blackholesim-auth.fly.dev"
 
 [http_service]
   internal_port = 8080

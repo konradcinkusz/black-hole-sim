@@ -1,10 +1,12 @@
 using System.Threading.RateLimiting;
+using BlackHoleSim.Api.Auth;
 using BlackHoleSim.Api.Data;
 using BlackHoleSim.Api.Endpoints;
 using BlackHoleSim.Api.Jobs;
 using BlackHoleSim.ServiceDefaults;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,21 +29,40 @@ builder.Services.AddDbContext<AppDbContext>(o =>
 builder.Services.AddSingleton<DatabaseReadyGate>();
 builder.Services.AddHostedService<DatabaseMigrationService>();
 
+// ── Authentication ────────────────────────────────────────────────────────────
+// Tokens are minted by the identity service this deployment runs (konradcinkusz/
+// authservice) and only verified here, against the public keys published at its JWKS.
+// This service holds no signing key and cannot issue a token for anyone.
+builder.AddBlackHoleSimAuthentication();
+
 // ── Job queue & background worker ─────────────────────────────────────────────
 builder.Services.AddSingleton<IRenderJobQueue, ChannelRenderJobQueue>();
 builder.Services.AddSingleton<JobCancellationRegistry>();
 builder.Services.AddHostedService<RenderWorker>();
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
+// Partitioned by caller, not global. AddFixedWindowLimiter builds a single window shared
+// by everyone, so five renders a minute was five for the whole deployment: one enthusiastic
+// client starved every other, and the limit said nothing about what any one account could
+// consume. Now that a request carries an identity, the window is per user — which is the
+// unit the limit was always meant to describe.
 builder.Services.AddRateLimiter(o =>
 {
-    o.AddFixedWindowLimiter("render", opt =>
-    {
-        opt.PermitLimit    = 5;
-        opt.Window         = TimeSpan.FromMinutes(1);
-        opt.QueueLimit     = 0;
-        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-    });
+    o.AddPolicy("render", http => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: http.User.Identity?.IsAuthenticated == true
+            ? http.User.OwnerId()
+            // Unreachable while the endpoint requires authorization (that middleware runs
+            // first and short-circuits), but a limiter that silently shares one partition
+            // across every anonymous caller is not the thing to leave behind if it ever is.
+            : $"anon:{http.Connection.RemoteIpAddress}",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit          = 5,
+            Window               = TimeSpan.FromMinutes(1),
+            QueueLimit           = 0,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+        }));
+
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 });
 
@@ -77,6 +98,30 @@ if (builder.Environment.IsDevelopment())
     builder.Services.AddSwaggerGen(c =>
     {
         c.SwaggerDoc("v1", new() { Title = "BlackHoleSim API", Version = "v1" });
+
+        // Every job endpoint needs a bearer token now, so the explorer is unusable without
+        // somewhere to paste one. Swagger cannot mint it: obtain a token from the identity
+        // service (POST /api/v1/auth/login) and paste the accessToken here.
+        c.AddSecurityDefinition("bearer", new OpenApiSecurityScheme
+        {
+            Type         = SecuritySchemeType.Http,
+            Scheme       = "bearer",
+            BearerFormat = "JWT",
+            In           = ParameterLocation.Header,
+            Description  = "Access token issued by the identity service."
+        });
+
+        c.AddSecurityRequirement(new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id   = "bearer"
+                }
+            }] = []
+        });
     });
 }
 
@@ -93,7 +138,14 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// Order matters twice over. Routing first, so the rate limiter can see which endpoint (and
+// therefore which policy) a request resolved to. Authentication and authorization before the
+// limiter, so the limiter's partition key is a real user id rather than whatever the request
+// claimed, and so an unauthenticated flood is refused before it consumes anyone's window.
+app.UseRouting();
 app.UseCors(CorsPolicy);
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseRateLimiter();
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -103,3 +155,11 @@ app.MapJobsEndpoints();
 app.MapHealthEndpoints();    // the /api/health aliases this service kept
 
 app.Run();
+
+/// <summary>
+/// Exposed so the test project can boot this application through
+/// <c>WebApplicationFactory&lt;Program&gt;</c>. A top-level program's generated class is
+/// internal, and the authorization tests are worth more than the privacy of a type that has
+/// no members.
+/// </summary>
+public partial class Program;

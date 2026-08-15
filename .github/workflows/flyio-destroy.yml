@@ -23,6 +23,7 @@ concurrency:
 
 env:
   APP_POSTGRES: blackholesim-postgres
+  APP_AUTH: blackholesim-auth
   APP_API: blackholesim-api
   APP_WEB: blackholesim-web
 
@@ -54,7 +55,7 @@ jobs:
           # Legacy names belong in this list too. After a rename, resources under the
           # old name outlive every cleanup and bill forever — there are none yet, and
           # the placeholder is here so the next rename remembers.
-          for app in "${{ env.APP_WEB }}" "${{ env.APP_API }}" "${{ env.APP_POSTGRES }}"; do
+          for app in "${{ env.APP_WEB }}" "${{ env.APP_API }}" "${{ env.APP_AUTH }}" "${{ env.APP_POSTGRES }}"; do
             if flyctl apps list --json | jq -e --arg a "$app" '.[] | select((.Name // .name) == $a)' >/dev/null; then
               echo "Destroying $app"
               flyctl apps destroy "$app" --yes
@@ -83,6 +84,10 @@ jobs:
             echo "## Destroyed"
             echo
             echo "Volume deleted: \`${{ inputs.delete_volume }}\`"
+            echo
+            echo "Every account registered against the identity service goes with it:"
+            echo "its database lives on the Postgres app, so keeping the volume keeps the"
+            echo "accounts, and deleting it does not."
             echo
             echo "To bring the deployment back, push a tag. Change detection treats a"
             echo "service whose Fly app is missing as changed, so everything rebuilds"

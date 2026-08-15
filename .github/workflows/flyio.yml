@@ -5,7 +5,7 @@
 #     ├── detect-changes  diff vs the previous tag → per-service flags
 #     │                   plus: a service whose Fly app is missing is always selected
 #     ├── build (matrix)  one image per changed service → registry.fly.io
-#     └── deploy          postgres → api → web, in that order
+#     └── deploy          postgres → auth → api → web, in that order
 #
 # A deploy is an act, so it is triggered by a tag rather than by a branch push.
 # workflow_dispatch is here for re-running a release without cutting a new tag.
@@ -28,6 +28,7 @@ concurrency:
 
 env:
   APP_POSTGRES: blackholesim-postgres
+  APP_AUTH: blackholesim-auth
   APP_API: blackholesim-api
   APP_WEB: blackholesim-web
   FLY_REGION: waw
@@ -61,6 +62,7 @@ jobs:
     environment: fly
     outputs:
       postgres: ${{ steps.detect.outputs.postgres }}
+      auth: ${{ steps.detect.outputs.auth }}
       api: ${{ steps.detect.outputs.api }}
       web: ${{ steps.detect.outputs.web }}
       matrix: ${{ steps.detect.outputs.matrix }}
@@ -117,6 +119,10 @@ jobs:
           # Gated separately and much more tightly: redeploying Postgres restarts it,
           # so it must not happen on every tag.
           PG_PATHS='^flyio/blackholesim-postgres\.fly\.toml'
+          # Nothing in this repository builds the identity service — it is deployed from a
+          # pinned upstream image — so the only thing that can change it is its own config,
+          # which is also where the image tag lives.
+          AUTH_PATHS='^flyio/blackholesim-auth\.fly\.toml'
 
           decide() {
             local name="$1" pattern="$2" app="$3"
@@ -130,6 +136,7 @@ jobs:
             echo "false"
           }
 
+          AUTH="$(decide auth "$AUTH_PATHS" "${{ env.APP_AUTH }}")"
           API="$(decide api "$API_PATHS" "${{ env.APP_API }}")"
           WEB="$(decide web "$WEB_PATHS" "${{ env.APP_WEB }}")"
           PG="$(decide postgres "$PG_PATHS" "${{ env.APP_POSTGRES }}")"
@@ -138,6 +145,7 @@ jobs:
             echo "api=$API"
             echo "web=$WEB"
             echo "postgres=$PG"
+            echo "auth=$AUTH"
           } >> "$GITHUB_OUTPUT"
 
           # Build matrix over the services that produce an image (Postgres uses a
@@ -161,7 +169,7 @@ jobs:
             echo "any_service=false" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "postgres=$PG  api=$API  web=$WEB"
+          echo "postgres=$PG  auth=$AUTH  api=$API  web=$WEB"
 
   # ────────────────────────────────────────────────────────────────────────────
   # Build each image exactly once and push it to the Fly registry. Every deploy
@@ -282,9 +290,83 @@ jobs:
             --wait-timeout 300
 
   # ────────────────────────────────────────────────────────────────────────────
+  # No build stage: this app runs a pinned upstream image, so there is nothing here to
+  # compile and it is absent from the build matrix by design.
+  deploy-auth:
+    name: Deploy identity service
+    needs: [test, detect-changes, deploy-postgres]
+    if: >-
+      ${{ always() && !cancelled()
+          && needs.test.result == 'success'
+          && needs.detect-changes.outputs.auth == 'true'
+          && (needs.deploy-postgres.result == 'success' || needs.deploy-postgres.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SIGNING_KEY:   ${{ secrets.JWT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${POSTGRES_PASSWORD}" ]; then
+            echo "::error::POSTGRES_PASSWORD is not set in the 'fly' environment. See flyio/SECRETS.md."
+            exit 1
+          fi
+
+          # Without a keypair the service silently falls back to HS256 and publishes an
+          # empty key set. Nothing would look broken until the API rejected every token,
+          # so fail here instead.
+          if [ -z "${JWT_SIGNING_KEY}" ]; then
+            echo "::error::JWT_SIGNING_KEY is not set in the 'fly' environment. See flyio/SECRETS.md."
+            exit 1
+          fi
+
+          # Its own logical database on the shared instance, created on first start.
+          CONN="Host=${{ env.APP_POSTGRES }}.internal;Port=5432;Database=authservice;Username=blackhole;Password=${POSTGRES_PASSWORD}"
+
+          # --stage holds both until the deploy below, so one release does not restart the
+          # app twice.
+          flyctl secrets set -a "${{ env.APP_AUTH }}" \
+            "ConnectionStrings__DefaultConnection=${CONN}" \
+            "Jwt__PrivateKeyPem=${JWT_SIGNING_KEY}" --stage
+
+      - name: Deploy
+        run: |
+          # --image is not passed: unlike the services this repo builds, the image to run
+          # is declared in the config's [build] block as a pinned upstream release.
+          flyctl deploy \
+            --config flyio/blackholesim-auth.fly.toml \
+            --app "${{ env.APP_AUTH }}" \
+            --wait-timeout 300
+
+      - name: Verify it publishes a usable key set
+        run: |
+          set -euo pipefail
+          # The health check confirms the app answers. It cannot confirm the thing that
+          # breaks silently: that the keypair was picked up. Under HS256 the JWKS is a
+          # valid document with no keys in it, the deploy looks perfectly green, and every
+          # token the API sees is then rejected for want of a signing key to check it with.
+          URL="https://${{ env.APP_AUTH }}.fly.dev/.well-known/jwks.json"
+          KEYS="$(curl -fsSL "$URL" | jq '.keys | length')"
+          if [ "${KEYS:-0}" -lt 1 ]; then
+            echo "::error::${URL} published no keys — the service is signing with HS256. Check JWT_SIGNING_KEY and the image tag in flyio/blackholesim-auth.fly.toml."
+            exit 1
+          fi
+          echo "Published ${KEYS} signing key(s)."
+
+  # ────────────────────────────────────────────────────────────────────────────
   deploy-api:
     name: Deploy API
-    needs: [test, detect-changes, build, deploy-postgres]
+    needs: [test, detect-changes, build, deploy-postgres, deploy-auth]
     # "my upstream succeeded OR was skipped" — without the `|| skipped`, an unchanged
     # Postgres would block every service behind it.
     if: >-
@@ -292,7 +374,8 @@ jobs:
           && needs.test.result == 'success'
           && needs.detect-changes.outputs.api == 'true'
           && needs.build.result == 'success'
-          && (needs.deploy-postgres.result == 'success' || needs.deploy-postgres.result == 'skipped') }}
+          && (needs.deploy-postgres.result == 'success' || needs.deploy-postgres.result == 'skipped')
+          && (needs.deploy-auth.result == 'success' || needs.deploy-auth.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment: fly
     env:
@@ -394,7 +477,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   summary:
     name: Summary
-    needs: [detect-changes, deploy-postgres, deploy-api, deploy-web]
+    needs: [detect-changes, deploy-postgres, deploy-auth, deploy-api, deploy-web]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -406,9 +489,11 @@ jobs:
             echo "| Service | Selected | Result |"
             echo "|---|---|---|"
             echo "| postgres | ${{ needs.detect-changes.outputs.postgres }} | ${{ needs.deploy-postgres.result }} |"
+            echo "| auth | ${{ needs.detect-changes.outputs.auth }} | ${{ needs.deploy-auth.result }} |"
             echo "| api | ${{ needs.detect-changes.outputs.api }} | ${{ needs.deploy-api.result }} |"
             echo "| web | ${{ needs.detect-changes.outputs.web }} | ${{ needs.deploy-web.result }} |"
             echo
             echo "Frontend: https://${{ env.APP_WEB }}.fly.dev"
             echo "API: https://${{ env.APP_API }}.fly.dev"
+            echo "Identity: https://${{ env.APP_AUTH }}.fly.dev"
           } >> "$GITHUB_STEP_SUMMARY"

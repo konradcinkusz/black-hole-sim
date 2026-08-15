@@ -1,8 +1,16 @@
 # Pull-and-run — NO repository clone needed. Download just this file:
 #   Linux/macOS/Git Bash: curl -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
 #   Windows PowerShell:   curl.exe -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
+#
+# One thing has to be done by hand first, because a private key cannot be shipped in a
+# file anyone can download — generate one, next to this file:
+#   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-signing.pem
+#
 #   docker compose -f docker-compose.ghcr.yml up
-# Web UI: http://localhost:8080, calling the API on http://localhost:5081.
+#
+# Web UI: http://localhost:8080, calling the API on http://localhost:5081 and signing in
+# against the identity service on http://localhost:5083. Create an account from the web UI:
+# renders are private to the account that submitted them.
 services:
 
   db:
@@ -20,6 +28,36 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # This deployment's own instance of konradcinkusz/authservice — its own logical
+  # database (which it creates on first start) and its own signing key. Pin a tag that
+  # signs with RS256 and publishes a JWKS; an HS256-only build serves an empty key set
+  # and the API rejects every token it issues.
+  auth:
+    image: ghcr.io/konradcinkusz/authservice:${AUTH_IMAGE_TAG:-v0.3.0}
+    ports:
+      # Published because the browser signs in against it directly.
+      - "${AUTH_PORT:-5083}:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      DatabaseProvider: PostgreSQL
+      ConnectionStrings__DefaultConnection: "Host=db;Port=5432;Database=authservice;Username=blackhole;Password=blackhole"
+      Jwt__PrivateKeyPath: /run/secrets/jwt-signing.pem
+      # Product-specific rather than the AuthService defaults: two deployments both on
+      # the defaults would accept each other's tokens.
+      Jwt__Issuer: BlackHoleSim
+      Jwt__Audience: BlackHoleSim
+      Cors__AllowedOrigins__0: "http://localhost:${WEB_PORT:-8080}"
+    volumes:
+      - ./jwt-signing.pem:/run/secrets/jwt-signing.pem:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    # No healthcheck: the image ships neither curl nor wget, so every probe worth
+    # writing would report "unhealthy" for want of a binary. Nothing waits on it — the
+    # API discovers signing keys lazily, on the first request carrying a token.
+    restart: unless-stopped
+
   api:
     image: ghcr.io/konradcinkusz/blackholesim-api:latest
     ports:
@@ -30,6 +68,11 @@ services:
       ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Default: "Host=db;Port=5432;Database=blackholesim;Username=blackhole;Password=blackhole"
       Cors__AllowedOrigins__0: "http://localhost:${WEB_PORT:-8080}"
+      # The container-internal address: this is resolved by the API, not by a browser.
+      Auth__Authority: "http://auth:8080"
+      Auth__Issuer: "BlackHoleSim"
+      Auth__Audience: "BlackHoleSim"
+      Auth__RequireHttpsMetadata: "false"
     depends_on:
       db:
         condition: service_healthy
@@ -47,10 +90,14 @@ services:
       - "${WEB_PORT:-8080}:8080"
     environment:
       PORT: "8080"
+      # Both resolved by the browser, so they are host addresses.
       API_BASE_URL: "http://localhost:${API_PORT:-5081}"
+      AUTH_BASE_URL: "http://localhost:${AUTH_PORT:-5083}"
     depends_on:
       api:
         condition: service_healthy
+      auth:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz || wget -qO- http://[::1]:8080/healthz || exit 1"]
       interval: 10s

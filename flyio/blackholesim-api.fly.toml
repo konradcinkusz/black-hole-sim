@@ -20,6 +20,22 @@ primary_region = "waw"
   # API directly, so its origin has to be allowed explicitly.
   Cors__AllowedOrigins__0 = "https://blackholesim-web.fly.dev"
 
+  # Where the signing keys are discovered. This service holds no key material: it fetches
+  # the identity service's public keys from its JWKS and can verify tokens but never issue
+  # one.
+  #
+  # The public hostname, not blackholesim-auth.internal, and deliberately. The identity
+  # service scales to zero, and Fly only auto-starts a stopped machine for traffic arriving
+  # through its proxy — a request to .internal reaches a machine that is not running and
+  # simply fails. Key discovery would then work only while something else happened to have
+  # woken the app, which is the kind of dependency that holds until the first quiet night.
+  # The document being fetched is a set of public keys, so the round trip costs nothing in
+  # confidentiality, and going over HTTPS means the metadata fetch is authenticated too.
+  Auth__Authority = "https://blackholesim-auth.fly.dev"
+  # Must match the identity service's Jwt__Issuer / Jwt__Audience exactly.
+  Auth__Issuer = "BlackHoleSim"
+  Auth__Audience = "BlackHoleSim"
+
   # Telemetry is instrumented (BlackHoleSim.ServiceDefaults) but has nowhere to go
   # here yet: no collector is deployed, and the exporter is only registered when this
   # variable is set, so leaving it unset means traces and metrics are simply not

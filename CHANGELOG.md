@@ -10,6 +10,37 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 ## [Unreleased]
 
 ### Added
+- **Accounts, and renders that belong to one.** The API accepted anything: every
+  endpoint was anonymous, and the gallery was a single global namespace in which any
+  caller could list, download and delete every render anyone had ever submitted. A GUID
+  is hard to guess, but `GET /api/jobs` handed them out twenty at a time.
+
+  Tokens are now minted by this deployment's **own instance** of
+  [`konradcinkusz/authservice`](https://github.com/konradcinkusz/authservice) — its own
+  machine, its own logical database, its own signing key — and only *verified* here.
+  Nothing in this repository holds key material: the API fetches public keys from the
+  identity service's JWKS, which lets it check a token and never mint one. That is what
+  the identity service moving to RS256 (its ADR 0002) makes possible; under a shared
+  symmetric secret, "can verify" and "can forge" are the same capability, and giving this
+  API the ability to validate a token would have given it the ability to issue one for
+  any account, including an administrator.
+
+  The dependency is on a pinned image, not on source. Nothing here compiles against that
+  repository.
+
+  Jobs carry the submitting account's `sub`, and every read, image fetch and delete
+  filters on it. Someone else's job answers **404, not 403** — 403 confirms the id names a
+  real render, which is exactly the enumeration answer the filter exists to withhold.
+  Rows predating this change have no owner and are visible to nobody; backfilling them
+  onto a sentinel account would have handed one arbitrary user everyone else's renders.
+  `DELETE FROM "RenderJobs" WHERE "OwnerId" IS NULL;` clears them.
+
+  The frontend gained sign-in and registration, a rotating token pair kept in
+  localStorage, and a refresh-on-401 that is serialised behind a lock — a page firing
+  several API calls at once would otherwise race several refreshes against a single-use
+  refresh token, where the first wins and every other is a replay the identity service is
+  entitled to treat as an attack.
+
 - **`BlackHoleSim.ServiceDefaults` — the shared kernel**, and with it the
   telemetry the repository previously only claimed to have. `AddServiceDefaults()`
   wires OpenTelemetry (ASP.NET Core, `HttpClient` and runtime instrumentation for
@@ -64,6 +95,16 @@ and `-web` (see `.github/workflows/build-containers.yml`).
   described only the original Core + ConsoleApp layout).
 
 ### Changed
+- **The render rate limit is per account.** `AddFixedWindowLimiter` builds one window
+  shared by every caller, so "5 renders a minute" was five for the entire deployment and a
+  single enthusiastic client starved everybody else. It only became fixable once a request
+  carried an identity to partition on.
+- **Finished renders are fetched, not linked.** The browser attaches no `Authorization`
+  header to an `<img src>` or to a download link, so against an authenticated endpoint both
+  fetched a 401 and rendered as a broken image. The bytes now come through the API client
+  and reach the page as a data URL — one auth model for every request, rather than one
+  endpoint left open so the `img` tag keeps working.
+
 - Migrations moved off the startup path. They ran inline before `app.Run()`,
   so Kestrel only began listening once Postgres had answered — on a platform
   that judges a deploy by an HTTP health check, that turns a slow database into
@@ -82,6 +123,10 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 - The web container listens on 8080 (was 80), from `PORT`.
 
 ### Fixed
+- **`.env` and `secrets/` were not gitignored**, though `.env.example` has claimed `.env`
+  was since it was written. Nothing yet written to disk had mattered; the identity
+  service's signing key does.
+
 - **The API container's healthcheck could never pass**, so the container was
   reported unhealthy while the API was serving correctly and `web`'s
   `depends_on: condition: service_healthy` never came up — meaning the

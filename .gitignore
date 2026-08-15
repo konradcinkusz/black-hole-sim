@@ -361,3 +361,11 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# ── Local secrets ────────────────────────────────────────────────────────────
+# Neither of these was ignored before, although .env.example has always claimed .env
+# was. Nothing had yet been written to disk that mattered; the identity service's
+# signing key does — a leak of it lets the holder mint a token for any account.
+.env
+.env.local
+secrets/
+*.pem
