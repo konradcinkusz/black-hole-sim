@@ -7,14 +7,16 @@ COPY BlackHoleSim.sln .
 COPY Directory.Build.props ./
 COPY BlackHoleSim.Shared/BlackHoleSim.Shared.csproj         BlackHoleSim.Shared/
 COPY BlackHoleSim.Core/BlackHoleSim.Core.csproj             BlackHoleSim.Core/
+COPY BlackHoleSim.ServiceDefaults/BlackHoleSim.ServiceDefaults.csproj BlackHoleSim.ServiceDefaults/
 COPY BlackHoleSim.Api/BlackHoleSim.Api.csproj               BlackHoleSim.Api/
 
 RUN dotnet restore BlackHoleSim.Api/BlackHoleSim.Api.csproj
 
 # Copy source and publish
-COPY BlackHoleSim.Shared/ BlackHoleSim.Shared/
-COPY BlackHoleSim.Core/   BlackHoleSim.Core/
-COPY BlackHoleSim.Api/    BlackHoleSim.Api/
+COPY BlackHoleSim.Shared/         BlackHoleSim.Shared/
+COPY BlackHoleSim.Core/           BlackHoleSim.Core/
+COPY BlackHoleSim.ServiceDefaults/ BlackHoleSim.ServiceDefaults/
+COPY BlackHoleSim.Api/            BlackHoleSim.Api/
 
 RUN dotnet publish BlackHoleSim.Api/BlackHoleSim.Api.csproj \
     -c Release -o /app --no-restore

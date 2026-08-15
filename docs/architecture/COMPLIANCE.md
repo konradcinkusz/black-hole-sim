@@ -18,7 +18,7 @@ been done yet and why. An honest "no" with a reason is worth more than a checkbo
 | | Before | After |
 |---|---|---|
 | Deployable to Fly.io | **No** — no configuration existed, and three things would have broken a deploy even if it had | **Yes** |
-| Reference-architecture checklist | 4 of 18 | 12 of 18, 2 not applicable |
+| Reference-architecture checklist | 4 of 18 | 15 of 18, 2 not applicable, 1 partial |
 | Fly.io guide checklist | 3 of 24 | 24 of 24 |
 | Repo-baseline checklist | 1 of 7 | 5 of 7 |
 
@@ -44,25 +44,25 @@ them is visible from reading the repository — only from trying:
 | # | Item | Status | Notes |
 |---|---|---|---|
 | 1 | Declared in the AppHost with `WithReference`, `WaitFor`, `WithHttpHealthCheck` | ✅ | `WithReference`/`WaitFor` were already there; `WithHttpHealthCheck("/health")` added. |
-| 2 | Calls `AddServiceDefaults()` and `MapDefaultEndpoints()` | ❌ | No ServiceDefaults project exists. See §5.1. |
+| 2 | Calls `AddServiceDefaults()` and `MapDefaultEndpoints()` | ✅ | `BlackHoleSim.ServiceDefaults` added; `BlackHoleSim.Api` calls both. |
 | 3 | Exposes `/health` and `/alive`; the platform check points at `/health` | ✅ | Split in `HealthEndpoints.cs`; `blackholesim-api.fly.toml` checks `/health`. `/api/health` kept as an alias. |
-| 4 | Emits OTLP traces, metrics and logs | ❌ | See §5.1 — same root cause as #2. |
+| 4 | Emits OTLP traces, metrics and logs | ✅* | Instrumented and exported over OTLP when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, which the Aspire AppHost does automatically. The asterisk is honest: **no collector is deployed on Fly**, so in the deployed environment the instrumentation is dormant rather than dark. Turning it on is one `[env]` line, not a code change. |
 | 5 | Owns its database; no other service connects to it | ✅ | One service, one database, one connection string. |
 | 6 | Schema applied by `MigrateAsync` from migrations, in a hosted service | ✅ | `DatabaseMigrationService`. Was `Migrate()` inline before `app.Run()`. |
 | 7 | Configuration from the environment; no secret in source; secret scanner in CI | ✅ | CORS and the API address became configuration. gitleaks runs as a pre-commit hook *and* a CI job. |
 | 8 | One service holds a signing key; others validate against its JWKS | **n/a** | The system has no authentication. Every endpoint is public by design — it renders pictures of a black hole. Recorded as not-applicable rather than passed: the day a job is owned by a user, this becomes a real gap. |
-| 9 | The shared kernel holds no entity, DTO, enum or user-facing string | ✅* | `BlackHoleSim.Shared` holds `RenderParameters`, `RenderJobDto` and `RenderJobStatus` — it is the **Contracts** project of the reference diagram, not the shared kernel, and DTOs shared across a boundary are exactly what belongs there. The asterisk: there is no architecture test or CI size check enforcing it stays that way. |
+| 9 | The shared kernel holds no entity, DTO, enum or user-facing string | ✅* | The two roles of the reference diagram are now both present and correctly separated: `BlackHoleSim.ServiceDefaults` is the **kernel** (plumbing only — telemetry, health, discovery, resilience; ~130 lines, well under the ~800 ceiling), and `BlackHoleSim.Shared` is **Contracts** (`RenderParameters`, `RenderJobDto`, `RenderJobStatus` — DTOs crossing a boundary, exactly what belongs there). The asterisk: no architecture test or CI size check enforces it stays that way. |
 | 10 | Every optional integration has a working no-op or fallback | **n/a** | There are no optional integrations. The database is mandatory. What did change: a failed migration now leaves the API up and reporting the failure on `/health`, rather than crash-looping — a process that exits cannot tell you why. |
 | 11 | Multi-stage Dockerfile; runtime major = TFM major; listens on `:8080`; non-root | ✅* | API: multi-stage, `aspnet:9.0` against `net9.0`, `:8080`, non-root. Web: now `:8080` (was `:80`). The asterisk: nginx's master process runs as root and drops to the `nginx` user for workers — the base image's own design, changeable only by moving to `nginxinc/nginx-unprivileged`. |
 | 12 | One `fly.toml`; `min_machines_running = 1` if another service calls it in-request | ✅ | Three configs, one per app. The API pins a machine — for the render worker rather than for a synchronous caller; reasoning in `flyio/INFRASTRUCTURE-ANALYSIS.md` §2. |
-| 13 | Outbound `HttpClient`s carry the standard resilience handler | ❌ | The Blazor client registers a bare `HttpClient`. See §5.2. |
+| 13 | Outbound `HttpClient`s carry the standard resilience handler | ✅* | `ConfigureHttpClientDefaults` in the kernel applies `AddStandardResilienceHandler` to every server-side client. The asterisk: the Blazor WebAssembly client gets an explicit timeout instead, deliberately — see §6. |
 | 14 | `Program.cs` is a manifest; wiring lives in extension methods | ◐ | ~100 lines and readable, but the health-check, CORS and rate-limit blocks are still inline rather than in `ServiceCollectionExtensions`. |
 | 15 | Extension points are interfaces registered in DI, not base classes | ✅ | `IRenderJobQueue` / `ChannelRenderJobQueue`. No inheritance chains anywhere. |
 | 16 | Has a test project; the logic-bearing layer is covered | ✅ | `BlackHoleSim.Tests` covers `Core` — RK4 convergence, Hamiltonian conservation, horizon capture. The physics is where the logic is. |
 | 17 | Built by the tag-driven workflow with path-based change detection | ✅ | `.github/workflows/flyio.yml`. |
 | 18 | Architectural decisions recorded in `docs/` | ✅ | This file, plus `flyio/INFRASTRUCTURE-ANALYSIS.md` and `flyio/SECRETS.md`. |
 
-**12 pass, 2 not applicable, 3 fail, 1 partial** — from 4 passing before.
+**15 pass, 2 not applicable, 0 fail, 1 partial** — from 4 passing before this work began.
 
 ---
 
@@ -130,46 +130,69 @@ Everything below was absent before this work — there was no `flyio/` directory
 
 ## 5. Open gaps, with reasons
 
-### 5.1 No ServiceDefaults, and therefore no telemetry (P2, P15, items 2 and 4)
+### 5.1 Telemetry has no destination in the deployed environment (item 4)
 
-The single largest remaining gap, and the two are one gap: the standard's telemetry,
-health, service discovery, resilience and CORS all arrive through a shared kernel
-project that this repository does not have.
+**Closed in the second phase**, with one caveat that is worth stating rather than
+hiding behind a tick. `BlackHoleSim.ServiceDefaults` now instruments ASP.NET Core,
+`HttpClient` and the runtime, and exports over OTLP to whatever
+`OTEL_EXPORTER_OTLP_ENDPOINT` names. Locally the Aspire AppHost sets that variable, so
+the dashboard's traces are real — they were advertised in the README before anything
+could emit them.
 
-Not done here because it is a different change from making the app deployable —
-a new project, referenced by every service, plus an OTLP endpoint to export to. Doing
-it inside a deployment change would mean shipping two things at once, and the
-observability half cannot be verified by the same CI run.
+What is *not* done: no collector is deployed on Fly, so `OTEL_EXPORTER_OTLP_ENDPOINT`
+is unset there and the instrumentation is dormant. That is a deliberate stopping point,
+not an oversight — provisioning and paying for a collector is a decision about running
+costs, and the code side is finished either way. Turning it on is one commented line in
+`flyio/blackholesim-api.fly.toml`; the image does not change.
 
-What exists in the meantime: structured logging through `ILogger` throughout, and
-health endpoints that carry real readiness information rather than a constant 200.
+### 5.2 Resilience on the WebAssembly client (item 13)
 
-### 5.2 No resilience handler on outbound HttpClients (item 13)
+**Closed for the server side** — `ConfigureHttpClientDefaults` in the kernel puts
+`AddStandardResilienceHandler` on every server-side `HttpClient`. The Blazor
+WebAssembly client is handled differently on purpose; see §6.
 
-`BlackHoleSim.Web/Program.cs` registers a bare `HttpClient`. It should carry
-`AddStandardResilienceHandler`, which needs `Microsoft.Extensions.Http.Resilience`.
+The original text of this section is kept below for the record, because the reasoning
+it gave has since been superseded by an actual decision rather than a deferral:
 
-Held back for one honest reason: this change was authored in an environment with no
-.NET SDK, so a new package reference could not be compiled or tested. Adding an
-untested dependency to make a checklist go green is the wrong trade. It belongs with
-§5.1, which introduces the project that should own it.
+> *(superseded)* `BlackHoleSim.Web/Program.cs` registers a bare `HttpClient`. It should
+> carry `AddStandardResilienceHandler`. Held back because this change was authored with
+> no .NET SDK, so a new package reference could not be compiled or tested.
+
+The package-version problem that caused the deferral was solved rather than waited out:
+`nuget.org` is reachable from the authoring environment, so every version was resolved
+from the flat-container API and each package's `lib/` target frameworks were read out of
+the `.nupkg` to confirm a `net9.0`-compatible asset before it was written into a
+`.csproj`. That is not the same as compiling, and CI remains the arbiter — but it is the
+difference between a checked choice and a guess.
 
 ### 5.3 Package versions are not centrally managed
 
 `Directory.Build.props` is in place; `Directory.Packages.props` is not. Central package
 management interacts with `Aspire.AppHost.Sdk`, and this repository carries an SDK/package
 version pair (`9.3.0` with `13.4.6`) that is unusual enough to want a real build behind
-any change to it. Same reason as §5.2 — no SDK available to verify — and the failure
-mode is a broken restore for everyone, not a missing feature.
+any change to it. The failure mode is a broken restore for everyone, not a missing
+feature, and unlike §5.2 the risk here is not one this environment can verify away —
+resolving versions does not tell you how the Aspire SDK will behave under CPM.
 
-Seven `.csproj` files still pin their own versions. Dependabot keeps them current,
+Eight `.csproj` files still pin their own versions. Dependabot keeps them current,
 which is why this is a tidiness gap rather than a security one.
 
 ### 5.4 Program.cs is not yet a manifest (item 14)
 
-Health-check, CORS and rate-limiter wiring is still inline. At ~100 lines it is
-readable, so this is a real but low-severity deviation. The extraction is natural to
-do alongside §5.1, which is where the extension methods would live.
+The only remaining ◐. `AddServiceDefaults()` moved telemetry, health, discovery and
+resilience out of it, but the CORS, rate-limiter and OpenAPI blocks are still inline at
+about 90 lines. Those are service-specific, so they do not belong in the kernel — they
+belong in a `ServiceCollectionExtensions` in the API itself. Small, self-contained, and
+deliberately left as its own change rather than smuggled into this one.
+
+### 5.5 No architecture test or size check on the kernel (item 9)
+
+The standard asks for the ~800-line ceiling and the "no entity types" rule to be
+enforced *mechanically*, because stating a limit in prose has already failed twice in
+the estate this blueprint was extracted from. `BlackHoleSim.ServiceDefaults` is ~130
+lines and references no entity, but nothing stops that changing. A CI line count and a
+test asserting the kernel's assembly references neither `BlackHoleSim.Core` nor
+`BlackHoleSim.Shared` would close it cheaply — this is the natural next piece of work.
 
 ---
 
@@ -182,6 +205,16 @@ environment here and the names are unique. The suffixed names remain free, and n
 references an app name — adding a second environment touches three `fly.toml` files and
 the workflow's `APP_*` variables and nothing else. Recorded in
 `flyio/INFRASTRUCTURE-ANALYSIS.md` §5 as well, where an operator will actually look.
+
+**The WebAssembly client gets a timeout, not the standard resilience handler.** The
+checklist asks for `AddStandardResilienceHandler` on outbound `HttpClient`s, and the
+kernel applies it everywhere server-side. The Blazor client is the exception, for a
+reason specific to what it does: it polls a render's progress on a timer, so a failed
+request is already retried a second later by the next poll. A retrying handler would
+stack duplicate in-flight requests against a job that is *designed* to take minutes,
+and it would pull Polly into the WebAssembly bundle to do it. It carries an explicit
+100-second timeout instead — the same value `HttpClient` defaults to, written down so
+it is reviewable.
 
 **The API pins a machine for a background job, not for a synchronous caller.** The
 guide's rule for `min_machines_running = 1` is "another service calls it in-request".
@@ -204,6 +237,8 @@ So:
 | Every YAML file parses | `yaml.safe_load` over all workflows and compose files |
 | Every TOML file parses | `tomllib` over all three `fly.toml` and `.gitleaks.toml` |
 | Every shell script parses | `bash -n` / `sh -n` |
+| Every package version exists and has a `net9.0`-compatible asset | Resolved from the `nuget.org` flat-container API, then each `.nupkg` opened and its `lib/` target frameworks and nuspec dependency groups read |
+| The solution file stays structurally valid after adding a project | `Project`/`EndProject` balance, and configuration rows mirrored from an existing project rather than hand-written |
 | Logic and wiring | Read, by hand, against the standards' failure-mode tables |
 
 | Not checked locally | Now verified by |

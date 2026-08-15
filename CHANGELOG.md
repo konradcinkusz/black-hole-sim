@@ -10,6 +10,25 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 ## [Unreleased]
 
 ### Added
+- **`BlackHoleSim.ServiceDefaults` — the shared kernel**, and with it the
+  telemetry the repository previously only claimed to have. `AddServiceDefaults()`
+  wires OpenTelemetry (ASP.NET Core, `HttpClient` and runtime instrumentation for
+  traces and metrics, plus OTel logging), the `self` liveness check, service
+  discovery, and `AddStandardResilienceHandler` on every outbound `HttpClient`;
+  `MapDefaultEndpoints()` maps `/health` and `/alive` so every service answers the
+  same two paths the same way.
+
+  The exporter is registered **only** when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, so
+  a bare `dotnet run` neither exports nor spends its life retrying a collector that
+  was never started. The Aspire AppHost sets it automatically — which is what makes
+  the dashboard's traces real. Until this, the README advertised traces the app had
+  no ability to emit.
+
+  Health probes are filtered out of traces. Left in, a check every ten seconds
+  forever becomes nearly every span and pushes out the traces anyone wants.
+
+  It is a shared *kernel*, not a shared *domain*: plumbing only, all of it extension
+  methods a service opts into line by line. No entities, no physics, no base classes.
 - **Fly.io deployment.** `flyio/` holds one `fly.toml` per app —
   `blackholesim-web` (scales to zero), `blackholesim-api` (one machine always
   up) and `blackholesim-postgres` (private network only, no public IP) — plus

@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BlackHoleSim.Core\BlackHoleSim.Core.csproj" />
     <ProjectReference Include="..\BlackHoleSim.Shared\BlackHoleSim.Shared.csproj" />
+    <ProjectReference Include="..\BlackHoleSim.ServiceDefaults\BlackHoleSim.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

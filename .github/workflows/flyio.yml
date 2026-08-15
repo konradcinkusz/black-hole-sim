@@ -108,10 +108,11 @@ jobs:
             [ -n "$CHANGED" ] && echo "$CHANGED" | grep -qE "$1"
           }
 
-          # Paths that invalidate a service's image. Shared and Core compile into the
-          # API image, so a change to either rebuilds it; Shared also compiles into
-          # the Web bundle. Directory.Build.props affects every compilation.
-          API_PATHS='^(BlackHoleSim\.Api/|BlackHoleSim\.Core/|BlackHoleSim\.Shared/|Directory\.Build\.props|\.dockerignore|flyio/blackholesim-api\.fly\.toml)'
+          # Paths that invalidate a service's image. Shared, Core and ServiceDefaults
+          # all compile into the API image, so a change to any of them rebuilds it;
+          # Shared also compiles into the Web bundle. Directory.Build.props affects
+          # every compilation.
+          API_PATHS='^(BlackHoleSim\.Api/|BlackHoleSim\.Core/|BlackHoleSim\.Shared/|BlackHoleSim\.ServiceDefaults/|Directory\.Build\.props|\.dockerignore|flyio/blackholesim-api\.fly\.toml)'
           WEB_PATHS='^(BlackHoleSim\.Web/|BlackHoleSim\.Shared/|Directory\.Build\.props|\.dockerignore|flyio/blackholesim-web\.fly\.toml)'
           # Gated separately and much more tightly: redeploying Postgres restarts it,
           # so it must not happen on every tag.

@@ -2,13 +2,18 @@ using System.Threading.RateLimiting;
 using BlackHoleSim.Api.Data;
 using BlackHoleSim.Api.Endpoints;
 using BlackHoleSim.Api.Jobs;
+using BlackHoleSim.ServiceDefaults;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 var builder = WebApplication.CreateBuilder(args);
 
 const string CorsPolicy = "frontend";
+
+// ── Shared kernel ─────────────────────────────────────────────────────────────
+// Telemetry, the "self" liveness check, service discovery and resilient HTTP
+// defaults. Everything below this line is specific to *this* service.
+builder.AddServiceDefaults();
 
 // ── Database ──────────────────────────────────────────────────────────────────
 builder.Services.AddDbContext<AppDbContext>(o =>
@@ -41,10 +46,10 @@ builder.Services.AddRateLimiter(o =>
 });
 
 // ── Health checks ─────────────────────────────────────────────────────────────
-// Only "self" carries the live tag: /alive answers "is this process running", and a
-// database outage must not be able to trigger a restart loop through it.
+// The live-tagged "self" check comes from AddServiceDefaults. These two are this
+// service's own, and neither is live-tagged on purpose: a database that has gone
+// away is a readiness problem, and restarting the process would not fix it.
 builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy(), tags: [HealthEndpoints.LiveTag])
     .AddCheck<SchemaReadyHealthCheck>("schema")
     .AddDbContextCheck<AppDbContext>("db");
 
@@ -92,8 +97,9 @@ app.UseCors(CorsPolicy);
 app.UseRateLimiter();
 
 // ── Endpoints ─────────────────────────────────────────────────────────────────
+app.MapDefaultEndpoints();   // /health (readiness) and /alive (liveness)
 app.MapRenderEndpoints();
 app.MapJobsEndpoints();
-app.MapHealthEndpoints();
+app.MapHealthEndpoints();    // the /api/health aliases this service kept
 
 app.Run();

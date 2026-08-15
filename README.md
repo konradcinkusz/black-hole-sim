@@ -62,6 +62,7 @@ Reproduce any of these directly with the console renderer:
 |---|---|---|
 | `BlackHoleSim.Core` | Physics (Schwarzschild metric, RK4 integrator), the raytracer, PPM/PNG encoding | — |
 | `BlackHoleSim.Shared` | DTOs shared by API and Web (`RenderParameters`, `RenderJobDto`, `RenderJobStatus`) | — |
+| `BlackHoleSim.ServiceDefaults` | Shared kernel — OpenTelemetry, `/health` + `/alive`, service discovery, HTTP resilience. Plumbing only: no entities, no physics, nothing about black holes | — |
 | `BlackHoleSim.ConsoleApp` | One-shot CLI renderer → `.ppm` file | Core |
 | `BlackHoleSim.Api` | ASP.NET Core minimal API: submits render jobs to a channel-backed queue, a hosted `RenderWorker` processes them, Postgres (EF Core) persists job state + the finished PNG | Core, Shared |
 | `BlackHoleSim.Web` | Blazor WebAssembly UI: render form with live progress polling, paginated gallery, delete | Shared |
@@ -91,6 +92,15 @@ waiting on each other in the right order. Opens the Aspire dashboard
 (`http://localhost:15888`) showing logs, traces, and health for all three —
 click through to the Web UI from there. F5 in an IDE on the AppHost project
 does the same with debuggers attached to everything.
+
+The traces are real, not just forwarded console output: `BlackHoleSim.Api` calls
+`AddServiceDefaults()` from `BlackHoleSim.ServiceDefaults`, which instruments
+ASP.NET Core, `HttpClient` and the runtime with OpenTelemetry and exports over
+OTLP to whatever `OTEL_EXPORTER_OTLP_ENDPOINT` names — the AppHost sets that to
+the dashboard for you. Health probes are filtered out of traces, or they would
+be nearly every span. Set no endpoint and the exporter is not registered at all,
+so a bare `dotnet run` neither exports nor retries against a collector that
+isn't there.
 
 The API and Web ports are pinned (not Aspire's usual random-port allocation)
 because the Blazor WebAssembly client can't do Aspire service discovery — it

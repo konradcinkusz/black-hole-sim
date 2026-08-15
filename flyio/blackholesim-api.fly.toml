@@ -20,6 +20,15 @@ primary_region = "waw"
   # API directly, so its origin has to be allowed explicitly.
   Cors__AllowedOrigins__0 = "https://blackholesim-web.fly.dev"
 
+  # Telemetry is instrumented (BlackHoleSim.ServiceDefaults) but has nowhere to go
+  # here yet: no collector is deployed, and the exporter is only registered when this
+  # variable is set, so leaving it unset means traces and metrics are simply not
+  # emitted rather than retried forever against an address nobody is listening on.
+  # Point it at a collector to turn telemetry on; nothing in the image changes.
+  #   OTEL_EXPORTER_OTLP_ENDPOINT = "https://<collector>:4317"
+  # Locally the Aspire AppHost sets this automatically, which is what puts traces in
+  # its dashboard.
+
 # ConnectionStrings__Default is a secret (it carries the database password) and is
 # set by the deploy workflow. See SECRETS.md.
 

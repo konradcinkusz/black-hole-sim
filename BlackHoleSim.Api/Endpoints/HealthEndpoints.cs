@@ -1,27 +1,22 @@
 namespace BlackHoleSim.Api.Endpoints;
 
+/// <summary>
+/// The health paths that predate the shared kernel.
+/// </summary>
+/// <remarks>
+/// <c>/health</c> and <c>/alive</c> now come from <c>MapDefaultEndpoints</c> in
+/// BlackHoleSim.ServiceDefaults, so every service in the estate answers the same two
+/// paths with the same semantics. These two remain because they were public: the
+/// compose healthcheck, the README and anyone's bookmarks all point at
+/// <c>/api/health</c>. They are aliases, not a second opinion — <c>/api/health</c>
+/// runs exactly the checks <c>/health</c> runs.
+/// </remarks>
 public static class HealthEndpoints
 {
-    /// <summary>Tag marking the checks that answer "is the process alive", nothing more.</summary>
-    public const string LiveTag = "live";
-
     public static void MapHealthEndpoints(this IEndpointRouteBuilder app)
     {
-        // Readiness: everything — database connectivity and schema state. This is what
-        // the platform's deploy check watches, so it must go red while the app is not
-        // yet able to serve, and red again if the database goes away.
-        app.MapHealthChecks("/health");
-
-        // Liveness: live-tagged checks only, so a database outage restarts nothing.
-        // A process that answers here is running; whether it is *useful* is /health.
-        app.MapHealthChecks("/alive", new()
-        {
-            Predicate = r => r.Tags.Contains(LiveTag)
-        });
-
-        // Pre-existing paths, kept so the compose healthcheck and any bookmarked URL
-        // do not break. /api/health is the readiness check under its old name.
         app.MapHealthChecks("/api/health");
+
         app.MapHealthChecks("/api/health/db", new()
         {
             Predicate = r => r.Name == "db"
