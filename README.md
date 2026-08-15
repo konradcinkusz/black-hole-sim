@@ -155,6 +155,8 @@ been applied — which is what `web`'s `depends_on: service_healthy` waits for.
 
 ```bash
 curl -O https://raw.githubusercontent.com/konradcinkusz/BlackHoleSim/master/docker-compose.ghcr.yml
+# A private key cannot be shipped in a file anyone can download, so generate one:
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out jwt-signing.pem
 docker compose -f docker-compose.ghcr.yml up
 # http://localhost:8080
 ```
@@ -302,10 +304,18 @@ DELETE FROM "RenderJobs" WHERE "OwnerId" IS NULL;
 
 ### Requirements on the identity service
 
+> **The pinned tag `v0.3.0` has not been published yet.** RS256 signing and the JWKS
+> endpoint are on `authservice`'s `main` branch but are **not** in any released tag —
+> `v0.2.0` and earlier predate that commit and sign with HS256 only. Until a release is
+> cut from `main`, `docker compose up` will fail to pull the image. Publishing one is a
+> release action on that repository (create a GitHub Release tagged `v0.3.0`, which fires
+> its `publish-image.yml`); its `workflow_dispatch` can also publish from `main` as
+> `:main` for a quick try. Point `AUTH_IMAGE_TAG` at whatever tag actually exists.
+
 The pinned tag must be one that signs with **RS256 and publishes a JWKS**. An HS256-only
 build serves a valid but empty key set, and the API then rejects every token it issues.
-The image tag lives in `flyio/blackholesim-auth.fly.toml`, `docker-compose.yml`
-(`AUTH_IMAGE_TAG`) and `BlackHoleSim.AppHost/Program.cs`.
+The image tag lives in `flyio/blackholesim-auth.fly.toml`, `docker-compose.yml` and
+`docker-compose.ghcr.yml` (`AUTH_IMAGE_TAG`), and `BlackHoleSim.AppHost/Program.cs`.
 
 Its `Jwt__Issuer` and `Jwt__Audience` must equal this API's `Auth__Issuer` and
 `Auth__Audience` exactly — both are set to `BlackHoleSim` rather than the upstream
