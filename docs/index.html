@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlackHoleSim — a black hole raytracer, as a full-stack app</title>
+<meta name="description" content="Photon geodesics in general relativity, numerically integrated in C# and rendered into an image of a black hole with a thin accretion disk — from a console renderer to a deployed web app.">
+<meta property="og:title" content="BlackHoleSim">
+<meta property="og:description" content="A Schwarzschild black hole raytracer, as a full-stack app.">
+<meta property="og:image" content="https://konradcinkusz.github.io/black-hole-sim/example_blackhole.png">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%23F09A52' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23000'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --space: #0A0C12;
+    --panel: #121520;
+    --panel-2: #171B28;
+    --ink: #EDEAE3;
+    --muted: #98A0AF;
+    --faint: #6C7484;
+    --line: #262B38;
+    --accent: #F09A52;
+    --accent-deep: #C86A28;
+    --accent-soft: rgba(240, 154, 82, 0.09);
+    --ok: #46B87E;
+    --idle: #8A93A2;
+    --warn: #D9A83C;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--space);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { color: #F7B87E; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 3px;
+  }
+  code { font-family: var(--mono); font-size: 0.92em; color: var(--ink); }
+  img { max-width: 100%; height: auto; display: block; }
+
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- hero ---------- */
+  header {
+    position: relative;
+    padding: 72px 0 40px;
+    text-align: center;
+    background:
+      radial-gradient(ellipse 620px 340px at 50% 118%, rgba(200, 106, 40, 0.16), transparent 70%),
+      var(--space);
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: clamp(2.6rem, 7vw, 4rem);
+    letter-spacing: 0.01em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+  }
+  .tagline {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: clamp(1.05rem, 2.6vw, 1.3rem);
+    color: var(--muted);
+    max-width: 34em;
+    margin: 0 auto 30px;
+    text-wrap: balance;
+  }
+  .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .btn {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    letter-spacing: 0.03em;
+    text-decoration: none;
+    padding: 10px 22px;
+    border-radius: 6px;
+    border: 1px solid var(--accent-deep);
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .btn-solid { background: var(--accent); color: #14100B; font-weight: 600; }
+  .btn-solid:hover { background: #F7B87E; color: #14100B; }
+  .btn-ghost { color: var(--accent); }
+  .btn-ghost:hover { background: var(--accent-soft); color: #F7B87E; }
+
+  .hero-figure { margin: 44px auto 0; max-width: 720px; padding: 0 24px; }
+  .hero-figure img {
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 0 90px rgba(200, 106, 40, 0.22);
+  }
+  .hero-figure figcaption {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--faint);
+    margin-top: 12px;
+  }
+
+  /* ---------- tabs ---------- */
+  .tabs {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    background: rgba(10, 12, 18, 0.94);
+    backdrop-filter: blur(6px);
+    z-index: 10;
+  }
+  .tabs [role="tab"] {
+    appearance: none;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 16px 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .tabs [role="tab"]:hover { color: var(--ink); }
+  .tabs [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+  main { padding: 48px 0 40px; }
+  section[role="tabpanel"] > .wrap > *:first-child { margin-top: 0; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 400;
+    font-size: 1.55rem;
+    margin: 56px 0 14px;
+    text-wrap: balance;
+  }
+  h2:first-child { margin-top: 0; }
+  h2 .no {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    letter-spacing: 0.18em;
+    display: block;
+    margin-bottom: 6px;
+  }
+  p { max-width: 68ch; margin: 0 0 15px; color: var(--ink); }
+  .dim { color: var(--muted); }
+
+  /* physics strip */
+  .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 26px 0 0; }
+  @media (max-width: 720px) { .facts { grid-template-columns: 1fr; } }
+  .fact {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px 18px;
+  }
+  .fact .k { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin: 0 0 8px; }
+  .fact .v { font-family: var(--mono); font-size: 15px; color: var(--ink); margin: 0 0 6px; }
+  .fact p { font-size: 13.5px; color: var(--muted); margin: 0; }
+
+  /* screenshots */
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px; }
+  @media (max-width: 720px) { .shots { grid-template-columns: 1fr; } }
+  .shots figure, .strip figure { margin: 0; }
+  .shots img, .strip img { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+  .shots figcaption, .strip figcaption { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-top: 8px; }
+  .shots .wide { grid-column: 1 / -1; }
+
+  .strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 26px; }
+  @media (max-width: 720px) { .strip { grid-template-columns: 1fr; } }
+
+  /* pieces */
+  .pieces { margin: 26px 0 0; display: grid; gap: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .piece {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 16px;
+    padding: 14px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  .piece:last-child { border-bottom: none; }
+  @media (max-width: 720px) { .piece { grid-template-columns: 1fr; gap: 2px; } }
+  .piece code { color: var(--accent); font-size: 13.5px; }
+  .piece span { color: var(--muted); font-size: 14px; }
+
+  /* ---------- architecture tab ---------- */
+  .diagram-wrap {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 14px 12px;
+    overflow-x: auto;
+    margin-top: 26px;
+  }
+  .diagram-wrap svg { display: block; min-width: 760px; max-width: 100%; height: auto; margin: 0 auto; }
+  figure.diagram { margin: 0; }
+  figure.diagram figcaption { font-size: 13.5px; color: var(--muted); margin-top: 12px; max-width: 74ch; }
+
+  .box { fill: var(--panel-2); stroke: var(--line); stroke-width: 1.2; }
+  .browser-box { fill: var(--space); stroke: var(--muted); stroke-width: 1.2; }
+  .boundary { fill: none; stroke: var(--muted); stroke-width: 1; stroke-dasharray: 5 5; opacity: 0.75; }
+  .band { fill: var(--accent-soft); stroke: none; }
+  .name { font-family: var(--mono); font-size: 13px; font-weight: 600; fill: var(--ink); }
+  .meta { font-family: var(--sans); font-size: 11.5px; fill: var(--muted); }
+  .lbl { font-family: var(--sans); font-size: 12px; fill: var(--muted); }
+  .lbl-strong { font-family: var(--mono); font-size: 11.5px; fill: var(--ink); }
+  .lbl-accent { font-family: var(--sans); font-size: 11.5px; fill: var(--accent); }
+  .edge { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+  .edge-private { fill: none; stroke: var(--muted); stroke-width: 1.4; stroke-dasharray: 4 4; }
+  .edge-accent { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+  .head { fill: var(--muted); }
+  .head-accent { fill: var(--accent); }
+  .dot-on { fill: var(--ok); }
+  .dot-zero { fill: none; stroke: var(--idle); stroke-width: 1.5; }
+  .cyl { fill: var(--space); stroke: var(--muted); stroke-width: 1; }
+  .origin { fill: var(--accent); }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin-top: 26px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--panel); }
+  th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    text-align: left;
+    color: var(--faint);
+    font-weight: 600;
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  td { padding: 11px 16px; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--muted); }
+  td:first-child { color: var(--ink); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 26px 0 48px;
+    font-size: 13.5px;
+    color: var(--faint);
+  }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .btn, .tabs [role="tab"] { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <p class="eyebrow">general relativity, rendered</p>
+    <h1>BlackHoleSim</h1>
+    <p class="tagline">A Schwarzschild black hole raytracer, as a full-stack app.</p>
+    <div class="cta">
+      <a class="btn btn-solid" href="https://blackholesim-web.fly.dev">Open the live app</a>
+      <a class="btn btn-ghost" href="https://github.com/konradcinkusz/black-hole-sim">View on GitHub</a>
+    </div>
+  </div>
+  <figure class="hero-figure">
+    <img src="example_blackhole.png" width="720" alt="Rendered image of a black hole: a dark central shadow surrounded by a bright orange accretion disk, bent above and below the hole by gravitational lensing.">
+    <figcaption>real output of the renderer — not an illustration</figcaption>
+  </figure>
+</header>
+
+<div class="tabs" role="tablist" aria-label="Page sections">
+  <button type="button" role="tab" id="tab-app" aria-controls="panel-app" aria-selected="true">The application</button>
+  <button type="button" role="tab" id="tab-arch" aria-controls="panel-arch" aria-selected="false" tabindex="-1">Architecture</button>
+</div>
+
+<main>
+  <!-- ============================ TAB 1 ============================ -->
+  <section id="panel-app" role="tabpanel" aria-labelledby="tab-app">
+    <div class="wrap">
+
+      <h2><span class="no">purpose</span>Photon paths around a black hole, computed honestly</h2>
+      <p>
+        BlackHoleSim traces light itself. For every pixel, a photon is launched backwards from the
+        camera and its geodesic — the path light follows through curved spacetime — is numerically
+        integrated in the Schwarzschild metric with a fourth-order Runge–Kutta scheme. Rays that
+        spiral into the horizon paint the shadow; rays that cross the thin accretion disk pick up
+        its colour; rays that escape reach the sky. The bright ring bending over and under the hole
+        is not an artistic flourish — it is gravitational lensing falling out of the equations,
+        the same effect that makes the far side of the disk visible from the front.
+      </p>
+      <p class="dim">
+        What started as a single C# console renderer is now a full-stack system: the physics core,
+        a one-shot CLI, a REST API that runs renders as background jobs, and a Blazor WebAssembly
+        UI — all sharing one integrator, so the picture from the terminal and the picture from the
+        browser come from the same code path.
+      </p>
+
+      <div class="facts" aria-label="Key physical quantities">
+        <div class="fact">
+          <p class="k">the geometry</p>
+          <p class="v">ds² = −(1−2M/r)dt² + dr²/(1−2M/r) + r²dφ²</p>
+          <p>Schwarzschild metric in the equatorial plane, G = c = 1.</p>
+        </div>
+        <div class="fact">
+          <p class="k">the motion</p>
+          <p class="v">H = ½ gᵘᵛ pᵤ pᵥ = 0</p>
+          <p>Null-geodesic Hamiltonian, integrated per ray with RK4.</p>
+        </div>
+        <div class="fact">
+          <p class="k">the landmarks</p>
+          <p class="v">horizon 2M · ISCO 6M · b꜀ = 3√3 M</p>
+          <p>Rays below the critical impact parameter are truly captured — the shadow is physics, not paint.</p>
+        </div>
+      </div>
+
+      <h2><span class="no">in the browser</span>Submit a render, watch it happen, keep it</h2>
+      <p>
+        Sign in, choose the parameters — disk radii, camera distance, resolution, field of view —
+        and submit. The API queues the job, a background worker integrates a geodesic per pixel with
+        live progress, and the finished PNG lands in your private gallery. Renders belong to the
+        account that made them.
+      </p>
+      <div class="shots">
+        <figure>
+          <img src="img/web-render-form.png" alt="The render form in the web UI, with fields for disk radii, camera distance, resolution and BMax.">
+          <figcaption>the render form</figcaption>
+        </figure>
+        <figure>
+          <img src="img/web-render-result.png" alt="A completed render job in the web UI showing the finished black hole image and job details.">
+          <figcaption>a completed job</figcaption>
+        </figure>
+        <figure class="wide">
+          <img src="img/web-gallery.png" alt="The gallery page of the web UI showing a grid of finished black hole renders.">
+          <figcaption>the gallery — private to each account</figcaption>
+        </figure>
+      </div>
+
+      <h2><span class="no">one knob, three worlds</span>The field of view is physics too</h2>
+      <p>
+        Same black hole, same disk — only <code>BMax</code>, the widest photon impact parameter
+        sampled, changes. Too narrow and every ray crosses the disk before it can escape or fall in:
+        no shadow, no sky, just disk. Too wide and the whole scene shrinks to a speck.
+      </p>
+      <div class="strip">
+        <figure>
+          <img src="img/sim_bmax30.png" alt="Render with BMax 30: the frame is filled with flat disk colour, no shadow or sky visible.">
+          <figcaption>BMax = 30 — all disk</figcaption>
+        </figure>
+        <figure>
+          <img src="img/sim_bmax50.png" alt="Render with BMax 50: shadow, lensed disk and sky in balanced proportion.">
+          <figcaption>BMax = 50 — the default</figcaption>
+        </figure>
+        <figure>
+          <img src="img/sim_bmax80.png" alt="Render with BMax 80: a small black hole and disk in a mostly empty frame.">
+          <figcaption>BMax = 80 — wide</figcaption>
+        </figure>
+      </div>
+
+      <h2><span class="no">the pieces</span>One integrator, five places to stand</h2>
+      <div class="pieces">
+        <div class="piece"><code>BlackHoleSim.Core</code><span>The physics: metric, RK4, raytracer, image encoding. Everything else orbits this.</span></div>
+        <div class="piece"><code>BlackHoleSim.ConsoleApp</code><span>One-shot CLI renderer — a .ppm file and nothing else required.</span></div>
+        <div class="piece"><code>BlackHoleSim.Api</code><span>ASP.NET Core minimal API: render jobs on a channel queue, a hosted worker, Postgres for job state and finished PNGs.</span></div>
+        <div class="piece"><code>BlackHoleSim.Web</code><span>Blazor WebAssembly UI: render form with live progress, paginated gallery.</span></div>
+        <div class="piece"><code>authservice</code><span>This deployment's own identity service (a pinned image of a separate project) — issues the RS256-signed tokens the API verifies.</span></div>
+      </div>
+      <p class="dim" style="margin-top:15px;">
+        .NET 9 · Blazor WASM · EF Core + PostgreSQL 16 · xUnit (RK4 convergence, Hamiltonian
+        conservation, horizon-capture tests) · Aspire for local dev · deployed on Fly.io by pushing a tag.
+      </p>
+
+    </div>
+  </section>
+
+  <!-- ============================ TAB 2 ============================ -->
+  <section id="panel-arch" role="tabpanel" aria-labelledby="tab-arch" hidden>
+    <div class="wrap">
+
+      <h2><span class="no">deployed on fly.io</span>Four apps, one per service</h2>
+      <p>
+        The web app only hands the browser a bundle — after that, the <em>browser</em> talks to the
+        API and the identity service directly, cross-origin. Server-side there are exactly three
+        edges: two private ones into Postgres, and one deliberate public one for key discovery.
+      </p>
+
+      <figure class="diagram">
+        <div class="diagram-wrap">
+        <svg viewBox="0 0 920 600" role="img"
+             aria-label="Topology of the four BlackHoleSim Fly apps: the browser loads the bundle from blackholesim-web, signs in against blackholesim-auth, and calls blackholesim-api with a bearer token — all through the Fly edge proxy. The API and auth service each reach blackholesim-postgres over the private network; the API fetches auth's public keys over its public hostname so the proxy can wake it.">
+          <defs>
+            <marker id="arw" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path class="head" d="M0,0 L8,4 L0,8 z"/>
+            </marker>
+            <marker id="arwA" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path class="head-accent" d="M0,0 L8,4 L0,8 z"/>
+            </marker>
+          </defs>
+
+          <rect class="browser-box" x="370" y="24" width="180" height="52" rx="5"/>
+          <text class="name" x="460" y="47" text-anchor="middle">Browser</text>
+          <text class="meta" x="460" y="64" text-anchor="middle">Blazor WASM runs here</text>
+
+          <rect class="boundary" x="40" y="120" width="840" height="464" rx="8"/>
+          <rect class="band" x="41" y="121" width="838" height="35"/>
+          <text class="lbl-strong" x="56" y="142">Fly edge proxy · *.fly.dev · TLS · wakes stopped machines</text>
+          <text class="lbl" x="56" y="572">Fly.io org · private network (6PN) · all apps in fra</text>
+
+          <polyline class="edge" points="410,76 410,96 175,96 175,206" marker-end="url(#arw)"/>
+          <polyline class="edge" points="460,76 460,206" marker-end="url(#arw)"/>
+          <polyline class="edge" points="510,76 510,96 735,96 735,206" marker-end="url(#arw)"/>
+          <text class="lbl" x="175" y="184" text-anchor="middle">① app bundle</text>
+          <text class="lbl" x="448" y="184" text-anchor="end">② sign-in · tokens</text>
+          <text class="lbl" x="745" y="112">③ /api/* · Bearer</text>
+
+          <circle class="origin" cx="660" cy="206" r="3"/>
+          <polyline class="edge-accent" points="660,206 660,138 520,138 520,206" marker-end="url(#arwA)"/>
+          <text class="lbl-accent" x="532" y="176">jwks.json — public keys only, fetched lazily</text>
+          <text class="lbl-accent" x="532" y="192">public hostname, so the proxy can wake auth</text>
+
+          <rect class="box" x="70" y="210" width="210" height="90" rx="5"/>
+          <circle class="dot-zero" cx="264" cy="226" r="4"/>
+          <text class="name" x="86" y="234">blackholesim-web</text>
+          <text class="meta" x="86" y="254">nginx · serves the WASM bundle</text>
+          <text class="meta" x="86" y="272">scales to zero · 256 MB</text>
+
+          <rect class="box" x="330" y="210" width="230" height="90" rx="5"/>
+          <circle class="dot-zero" cx="544" cy="226" r="4"/>
+          <text class="name" x="346" y="234">blackholesim-auth</text>
+          <text class="meta" x="346" y="254">authservice v0.3.0 · pinned image</text>
+          <text class="meta" x="346" y="272">scales to zero · signs RS256</text>
+
+          <rect class="box" x="620" y="210" width="230" height="90" rx="5"/>
+          <circle class="dot-on" cx="834" cy="226" r="4"/>
+          <text class="name" x="636" y="234">blackholesim-api</text>
+          <text class="meta" x="636" y="254">ASP.NET Core · RenderWorker</text>
+          <text class="meta" x="636" y="272">1 machine pinned · 2x CPU · 1 GB</text>
+
+          <polyline class="edge-private" points="445,300 445,412 560,412 560,436" marker-end="url(#arw)"/>
+          <polyline class="edge-private" points="735,300 735,436" marker-end="url(#arw)"/>
+          <text class="lbl" x="455" y="340">db authservice</text>
+          <text class="lbl" x="727" y="340" text-anchor="end">db blackholesim</text>
+
+          <rect class="box" x="470" y="440" width="320" height="120" rx="5"/>
+          <circle class="dot-on" cx="774" cy="456" r="4"/>
+          <text class="name" x="486" y="464">blackholesim-postgres</text>
+          <text class="meta" x="486" y="482">postgres:16 · 1 machine · 3 GB volume</text>
+          <text class="lbl-strong" x="486" y="502">.internal:5432 — no public IP</text>
+          <path class="cyl" d="M518,522 a22,6 0 0 1 44,0 v22 a22,6 0 0 1 -44,0 z"/>
+          <ellipse class="cyl" cx="540" cy="522" rx="22" ry="6"/>
+          <text class="meta" x="570" y="538">authservice</text>
+          <path class="cyl" d="M638,522 a22,6 0 0 1 44,0 v22 a22,6 0 0 1 -44,0 z"/>
+          <ellipse class="cyl" cx="660" cy="522" rx="22" ry="6"/>
+          <text class="meta" x="690" y="538">blackholesim</text>
+
+          <line class="edge" x1="70" y1="452" x2="118" y2="452" marker-end="url(#arw)"/>
+          <text class="lbl" x="128" y="456">browser-originated HTTPS, cross-origin</text>
+          <line class="edge-accent" x1="70" y1="478" x2="118" y2="478" marker-end="url(#arwA)"/>
+          <text class="lbl" x="128" y="482">server-to-server, via the public proxy</text>
+          <line class="edge-private" x1="70" y1="504" x2="118" y2="504" marker-end="url(#arw)"/>
+          <text class="lbl" x="128" y="508">private network (6PN), never public</text>
+          <circle class="dot-on" cx="76" cy="532" r="4"/>
+          <text class="lbl" x="88" y="536">machine always running</text>
+          <circle class="dot-zero" cx="76" cy="556" r="4"/>
+          <text class="lbl" x="88" y="560">stops when idle, proxy restarts it</text>
+        </svg>
+        </div>
+        <figcaption>
+          All user traffic enters through the Fly edge proxy, which is also what lets
+          <code>web</code> and <code>auth</code> scale to zero. Server-side, Postgres is reachable only over
+          the private network, while the API reaches auth over its public hostname — the one arrow worth
+          reading twice.
+        </figcaption>
+      </figure>
+
+      <h2><span class="no">the edges</span>Every arrow, spelled out</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Edge</th><th>What moves</th><th>Why this address</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>① browser → web</td>
+              <td>The Blazor WASM bundle, plus <code>appsettings.json</code> rewritten at container start with the API and auth URLs.</td>
+              <td>Only a browser ever calls this app — a cold start is a slow first page, not a failed call.</td>
+            </tr>
+            <tr>
+              <td>② browser → auth</td>
+              <td>Register, sign-in, token refresh. Issues RS256-signed JWTs; never proxied through the API.</td>
+              <td>Cross-origin from the web app's origin, allowed explicitly via CORS.</td>
+            </tr>
+            <tr>
+              <td>③ browser → api</td>
+              <td>All <code>/api/*</code> calls with <code>Authorization: Bearer</code> — submit render, poll status, fetch PNG, delete.</td>
+              <td>Same CORS story; the API validates the token signature locally on every request.</td>
+            </tr>
+            <tr>
+              <td>api → auth</td>
+              <td>Public signing keys only, from <code>/.well-known/jwks.json</code> — fetched lazily, then cached. The API holds no key material and cannot mint tokens.</td>
+              <td>Deliberately the <em>public</em> hostname, not <code>.internal</code>: auth scales to zero and only proxy traffic wakes a stopped machine.</td>
+            </tr>
+            <tr>
+              <td>api → postgres</td>
+              <td>Job state and finished PNG blobs, database <code>blackholesim</code>.</td>
+              <td>Private network only — the database has no public IP at all.</td>
+            </tr>
+            <tr>
+              <td>auth → postgres</td>
+              <td>Accounts and refresh tokens, in its <em>own</em> logical database <code>authservice</code>.</td>
+              <td>Same instance to avoid a second always-on Postgres; separate database, not a shared schema.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2><span class="no">operations</span>Deploying is pushing a tag</h2>
+      <p>
+        A <code>v*</code> tag runs the pipeline: tests, then building only the images that changed since
+        the previous tag, then deploying <code>postgres → auth → api → web</code>. An app that does not
+        exist yet counts as changed, so one tag against an empty Fly organisation provisions everything.
+        The deploy gate checks what a health probe cannot: that the identity service's JWKS actually
+        publishes a key — without one it would serve a valid but empty key set, and every token would be
+        rejected while everything looked green.
+      </p>
+      <p class="dim">
+        The API keeps one machine pinned so a background render is never stopped mid-flight; web and auth
+        scale to zero between visits. Sizing, cost and the reasoning behind each number live in
+        <a href="https://github.com/konradcinkusz/black-hole-sim/blob/master/flyio/INFRASTRUCTURE-ANALYSIS.md">flyio/INFRASTRUCTURE-ANALYSIS.md</a>.
+      </p>
+
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>MIT licensed · every image on this page is real renderer output</span>
+    <span>after Luminet (1979) · Carroll, <em>Spacetime and Geometry</em> · Thorne, <em>Black Holes and Time Warps</em></span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+    var hashFor = { 'tab-app': '', 'tab-arch': '#architecture' };
+    function select(tab, focus, setHash) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      if (focus) tab.focus();
+      if (setHash && history.replaceState) {
+        history.replaceState(null, '', location.pathname + location.search + hashFor[tab.id]);
+      }
+    }
+    tabs.forEach(function (t, i) {
+      t.addEventListener('click', function () { select(t, false, true); });
+      t.addEventListener('keydown', function (e) {
+        var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (d) {
+          e.preventDefault();
+          select(tabs[(i + d + tabs.length) % tabs.length], true, true);
+        }
+      });
+    });
+    if (location.hash === '#architecture') {
+      select(document.getElementById('tab-arch'), false, false);
+    }
+  })();
+</script>
+
+</body>
+</html>
