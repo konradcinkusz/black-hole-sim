@@ -155,3 +155,11 @@ app.MapJobsEndpoints();
 app.MapHealthEndpoints();    // the /api/health aliases this service kept
 
 app.Run();
+
+/// <summary>
+/// Exposed so the test project can boot this application through
+/// <c>WebApplicationFactory&lt;Program&gt;</c>. A top-level program's generated class is
+/// internal, and the authorization tests are worth more than the privacy of a type that has
+/// no members.
+/// </summary>
+public partial class Program;
