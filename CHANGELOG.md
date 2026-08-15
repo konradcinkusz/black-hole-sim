@@ -3,9 +3,10 @@
 Notable changes per release. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
-No release has been tagged yet — everything below is unreleased. Once tagged,
-releases publish two images to GHCR — `ghcr.io/konradcinkusz/blackholesim-api`
-and `-web` (see `.github/workflows/build-containers.yml`).
+No release has been tagged yet — everything below is unreleased. A tag does one
+thing: it runs `.github/workflows/flyio.yml`, which builds each changed image
+straight to `registry.fly.io` and deploys it. That is the only automation in the
+repository.
 
 ## [Unreleased]
 
@@ -76,9 +77,10 @@ and `-web` (see `.github/workflows/build-containers.yml`).
 - `docs/architecture/COMPLIANCE.md` — this repository measured against
   `konradcinkusz/architecture-standards`, including the gaps not closed and why.
 - Repository baseline: root `.dockerignore`, `CODEOWNERS`, `.editorconfig`,
-  `Directory.Build.props`, real `.gitattributes` rules, gitleaks as both a
-  pre-commit hook and a CI job, CodeQL, a dependency audit, a compose smoke
-  test, and `scripts/` (one-command onboarding plus a local mirror of CI).
+  `Directory.Build.props`, real `.gitattributes` rules, gitleaks as a pre-commit
+  hook, and `scripts/` — one-command onboarding plus `ci-local.sh`, which runs
+  tests, formatting, the secret scan, a dependency audit, both image builds and a
+  compose smoke test. Those checks are local only; see *Removed*.
 - Full-stack implementation: `BlackHoleSim.Api` (render-job queue backed by
   Postgres via EF Core), `BlackHoleSim.Web` (Blazor WebAssembly UI — render
   form with live progress polling, paginated gallery), `BlackHoleSim.Shared`
@@ -88,8 +90,6 @@ and `-web` (see `.github/workflows/build-containers.yml`).
   (`dotnet run --project BlackHoleSim.AppHost`) starts Postgres, the API, and
   the web UI, wired together, with a dashboard showing logs/traces for all
   three.
-- GHCR image-publish workflow (`build-containers.yml`) and
-  `docker-compose.ghcr.yml` for a no-clone, pull-and-run quick start.
 - CONTRIBUTING.md, SECURITY.md, CODE_OF_CONDUCT.md, issue/PR templates.
 - README rewritten to document the actual current architecture (it previously
   described only the original Core + ConsoleApp layout).
@@ -122,7 +122,36 @@ and `-web` (see `.github/workflows/build-containers.yml`).
   list. `docker compose up` now publishes the API on `${API_PORT:-5081}`.
 - The web container listens on 8080 (was 80), from `PORT`.
 
+### Removed
+- **Every workflow except the Fly.io ones.** `ci.yml` (build and test, an advisory
+  `dotnet format` check, gitleaks, CodeQL, a dependency audit, both image builds and a
+  compose smoke test) and `build-containers.yml` (which published
+  `ghcr.io/konradcinkusz/blackholesim-api` and `-web` on a tag) are gone, along with
+  `docker-compose.ghcr.yml` and the pull-and-run quick start that depended on those
+  images. What remains is `flyio.yml`, `flyio-scale.yml` and `flyio-destroy.yml`.
+
+  What this costs, stated plainly rather than left to be discovered: **nothing checks a
+  pull request now.** Build and tests still gate a deploy — `flyio.yml` runs them in its
+  `test` job — but that is at tag time, after merge. CodeQL is gone outright; gitleaks
+  survives only as a pre-commit hook, which a clone that never ran `pre-commit install`
+  does not have. The formatting check, dependency audit, image builds and compose smoke
+  test survive only in `./scripts/ci-local.sh`, which nothing runs but a person.
+  `docs/architecture/COMPLIANCE.md` records the standards this moves out of compliance.
+
+  Dependabot is still configured and still opens pull requests; those pull requests now
+  arrive with no automated verification of any kind.
+
 ### Fixed
+- **The identity service could never be deployed to a Fly organisation that did not
+  already contain it.** Every other app gets created as a side effect of something that
+  runs before the deploy — Postgres by its own volume step, the API and Web by the build
+  job, which must create an app before it can push to `registry.fly.io/<app>`. The
+  identity service builds nothing by design: it runs a pinned upstream image and is
+  deliberately absent from the build matrix. So it rode on neither, and the first command
+  to name the app was `flyctl secrets set`, which does not create one — it fails with
+  `Could not find App "blackholesim-auth"`. `deploy-auth` now ensures the app exists
+  first, exactly as `deploy-postgres` and `build` already did.
+
 - **`.env` and `secrets/` were not gitignored**, though `.env.example` has claimed `.env`
   was since it was written. Nothing yet written to disk had mattered; the identity
   service's signing key does.
@@ -131,8 +160,8 @@ and `-web` (see `.github/workflows/build-containers.yml`).
   reported unhealthy while the API was serving correctly and `web`'s
   `depends_on: condition: service_healthy` never came up — meaning the
   documented `docker compose up` quick start had been broken. Nothing caught
-  it because nothing exercised compose until the new `compose-smoke` CI job
-  did.
+  it because nothing exercised compose until a smoke test did — which now lives
+  in `./scripts/ci-local.sh compose-smoke` rather than in CI.
 
   The fix that mattered was the address: the probe asked for `localhost`, and
   Kestrel logs `Now listening on: http://[::]:8080`, so whether that socket

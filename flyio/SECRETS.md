@@ -143,8 +143,9 @@ rotated key cannot be confused with its predecessor.
 ## If a secret lands in git history
 
 Rotate first, clean history second. The moment a commit is pushed the value is public;
-scrubbing the history without rotating is theater. `gitleaks` runs both as a pre-commit
-hook and as a CI job (`.github/workflows/ci.yml`) specifically so this stays hypothetical.
+scrubbing the history without rotating is theater. `gitleaks` runs as a pre-commit hook,
+and on demand via `./scripts/ci-local.sh secret-scan`, to keep this hypothetical — but
+both are local, so a contributor who never installed the hook is scanned by nothing.
 
 ## Local development
 

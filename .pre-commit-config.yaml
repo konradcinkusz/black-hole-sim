@@ -2,9 +2,10 @@
 #
 #   pip install pre-commit && pre-commit install
 #
-# `scripts/setup.sh` does it for you. The hook is the half of secret scanning that
-# runs before a mistake becomes history — the CI job in ci.yml is the half that
-# covers contributors who skipped this.
+# `scripts/setup.sh` does it for you. This hook is now the *only* automatic secret
+# scanning in the repository — the CI job that used to cover contributors who skipped
+# it is gone, so a clone without `pre-commit install` has none at all. Installing it is
+# not optional politeness.
 repos:
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
