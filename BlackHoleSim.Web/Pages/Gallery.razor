@@ -1,9 +1,10 @@
 @page "/gallery"
+@attribute [Authorize]
 
 <PageTitle>Gallery — BlackHoleSim</PageTitle>
 
 <h1>Render Gallery</h1>
-<p class="subtitle">Every render job submitted, newest first.</p>
+<p class="subtitle">Your render jobs, newest first.</p>
 
 @if (_loading)
 {
@@ -21,9 +22,15 @@ else
         @foreach (var job in _jobs)
         {
             <div class="gallery-card">
-                @if (job.Status == RenderJobStatus.Completed)
+                @if (job.Status == RenderJobStatus.Completed && _images.TryGetValue(job.Id, out var image))
                 {
-                    <img src="@Api.GetImageUrl(job.Id)" alt="Render @job.Id" class="gallery-thumb" />
+                    <img src="@image" alt="Render @job.Id" class="gallery-thumb" />
+                }
+                else if (job.Status == RenderJobStatus.Completed)
+                {
+                    <div class="gallery-thumb gallery-placeholder">
+                        <span class="hint">Loading…</span>
+                    </div>
                 }
                 else
                 {
@@ -38,9 +45,10 @@ else
                     </div>
                     <span class="job-date">@job.CreatedAt.ToString("yyyy-MM-dd HH:mm")</span>
                     <div class="gallery-actions">
-                        @if (job.Status == RenderJobStatus.Completed)
+                        @if (job.Status == RenderJobStatus.Completed
+                             && _images.TryGetValue(job.Id, out var download))
                         {
-                            <a href="@Api.GetImageUrl(job.Id)" download="@($"blackhole_{ShortId(job.Id)}.png")"
+                            <a href="@download" download="@($"blackhole_{ShortId(job.Id)}.png")"
                                class="btn-small">
                                 Download
                             </a>
@@ -65,6 +73,12 @@ else
     [Inject] RenderApiClient Api { get; set; } = default!;
 
     private List<RenderJobDto> _jobs = [];
+
+    // Thumbnails have to be fetched rather than linked: /api/jobs/{id}/image needs a bearer
+    // token, and the browser sends none on an <img src>. Keyed by job so a page change or a
+    // delete does not leave a card showing the previous render's picture.
+    private readonly Dictionary<Guid, string> _images = [];
+
     private bool _loading = true;
     private int _page = 1;
     private const int _pageSize = 20;
@@ -76,7 +90,30 @@ else
     {
         _loading = true;
         _jobs    = await Api.ListAsync(_page, _pageSize);
+        _images.Clear();
         _loading = false;
+
+        // After the grid is on screen, not before: the cards render immediately with a
+        // placeholder and fill in as each image arrives, rather than the whole page waiting on
+        // twenty downloads.
+        await LoadImagesAsync();
+    }
+
+    private async Task LoadImagesAsync()
+    {
+        foreach (var job in _jobs.Where(j => j.Status == RenderJobStatus.Completed))
+        {
+            var image = await Api.GetImageDataUrlAsync(job.Id);
+
+            // Sequential on purpose. Firing twenty concurrent requests at the API is a burst
+            // that buys nothing here — the images are already rendered and waiting — and it is
+            // the pattern most likely to trip a rate limiter for no user-visible gain.
+            if (image is not null)
+            {
+                _images[job.Id] = image;
+                StateHasChanged();
+            }
+        }
     }
 
     private async Task PrevPage() { _page--; await LoadAsync(); }

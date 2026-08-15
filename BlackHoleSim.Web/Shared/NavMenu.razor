@@ -25,4 +25,30 @@
             <span>About</span>
         </NavLink>
     </nav>
+
+    <div class="nav-account">
+        <AuthorizeView>
+            <Authorized>
+                <span class="nav-account-name">@context.User.Identity?.Name</span>
+                <button class="btn-small" @onclick="SignOutAsync">Sign out</button>
+            </Authorized>
+            <NotAuthorized>
+                <NavLink href="login" class="btn-small">Sign in</NavLink>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
 </div>
+
+@code {
+    [Inject] AuthSession Session { get; set; } = default!;
+    [Inject] NavigationManager Navigation { get; set; } = default!;
+
+    private async Task SignOutAsync()
+    {
+        await Session.SignOutAsync();
+
+        // Straight to the sign-in page rather than leaving the now-unauthorized page to redirect
+        // itself, which would put the page just abandoned into the returnUrl.
+        Navigation.NavigateTo("login");
+    }
+}

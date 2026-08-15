@@ -115,6 +115,27 @@ main { flex: 1; overflow-y: auto; min-width: 0; }
 }
 .nav-menu a.active svg { opacity: 1; }
 
+/* ── Account strip ────────────────────────────────────────────────────────── */
+.nav-account {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    padding: 0.75rem 1.35rem 0;
+    border-top: 1px solid var(--border);
+}
+/* The signed-in address can be long and the sidebar is narrow: ellipsis rather than a
+   column that grows to fit somebody's email. */
+.nav-account-name {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.nav-account a { padding: 0.3rem 0.7rem; font-size: 0.78rem; }
+
 /* ── Typography ───────────────────────────────────────────────────────────── */
 h1 { font-size: 1.85rem; font-weight: 700; margin-bottom: 0.35rem; letter-spacing: -0.01em; }
 h2 { font-size: 1.25rem; margin: 0 0 0.9rem; color: var(--text); font-weight: 600; }
@@ -413,6 +434,7 @@ code { font-size: 0.88em; font-family: var(--font-mono); }
     }
     .brand { padding: 0 1rem 0.75rem; margin-bottom: 0.5rem; }
     .nav-menu nav { flex-direction: row; overflow-x: auto; padding: 0 0.75rem; }
+    .nav-account { margin-top: 0.5rem; padding: 0.6rem 1rem 0; }
     .content { padding: 1.25rem 1rem; }
     .form-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 }

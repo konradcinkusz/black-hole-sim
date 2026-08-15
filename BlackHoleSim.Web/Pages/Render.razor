@@ -1,5 +1,6 @@
 @page "/"
 @page "/render"
+@attribute [Authorize]
 @implements IDisposable
 
 <PageTitle>Render — BlackHoleSim</PageTitle>
@@ -101,18 +102,22 @@
             <div class="progress-label">@((_job.Progress * 100).ToString("F1"))% complete</div>
         }
 
-        @if (_job.Status == RenderJobStatus.Completed)
+        @if (_job.Status == RenderJobStatus.Completed && _image is not null)
         {
             <div class="render-result">
                 <div class="render-frame">
-                    <img src="@Api.GetImageUrl(_job.Id)" alt="Black hole render" class="render-image" />
+                    <img src="@_image" alt="Black hole render" class="render-image" />
                 </div>
                 <div>
-                    <a href="@Api.GetImageUrl(_job.Id)" download="blackhole.png" class="btn-secondary">
+                    <a href="@_image" download="blackhole.png" class="btn-secondary">
                         Download PNG
                     </a>
                 </div>
             </div>
+        }
+        else if (_job.Status == RenderJobStatus.Completed)
+        {
+            <p>Fetching the image…</p>
         }
 
         @if (_job.Status == RenderJobStatus.Failed)
@@ -127,15 +132,21 @@
 
     private RenderParameters _params = new();
     private RenderJobDto? _job;
+
+    // The finished PNG as a data URL. /api/jobs/{id}/image needs a bearer token and an
+    // <img src> carries none, so the bytes come through the API client instead.
+    private string? _image;
+
     private bool _busy;
     private string? _error;
     private PeriodicTimer? _pollTimer;
 
     private async Task StartRenderAsync()
     {
-        _busy  = true;
-        _error = null;
-        _job   = null;
+        _busy   = true;
+        _error  = null;
+        _job    = null;
+        _image  = null;
 
         _job = await Api.SubmitAsync(_params);
 
@@ -166,6 +177,10 @@
                 _busy = false;
                 _pollTimer.Dispose();
                 _pollTimer = null;
+
+                if (_job.Status == RenderJobStatus.Completed)
+                    _image = await Api.GetImageDataUrlAsync(_job.Id);
+
                 await InvokeAsync(StateHasChanged);
                 break;
             }
