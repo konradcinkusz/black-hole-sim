@@ -29,7 +29,10 @@ env:
   APP_AUTH: blackholesim-auth
   APP_API: blackholesim-api
   APP_WEB: blackholesim-web
-  FLY_REGION: waw
+  # Keep in step with flyio.yml and every flyio/*.fly.toml: scaling into a region the
+  # apps were not deployed to creates machines somewhere new rather than adjusting the
+  # ones that exist.
+  FLY_REGION: fra
 
 jobs:
   scale:

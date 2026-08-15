@@ -8,7 +8,7 @@
 # second machine would come up with a second *empty* volume, not a replica.
 
 app = "blackholesim-postgres"
-primary_region = "waw"
+primary_region = "fra"
 
 [build]
   # A vanilla postgres image, not Fly's managed postgres-flex — flex expects

@@ -31,7 +31,12 @@ env:
   APP_AUTH: blackholesim-auth
   APP_API: blackholesim-api
   APP_WEB: blackholesim-web
-  FLY_REGION: waw
+  # Must match `primary_region` in every flyio/*.fly.toml — this variable places the
+  # Postgres volume, and a volume in one region with the machine pinned to another is
+  # a deploy that cannot schedule. Fly retires regions: `waw` was deprecated and now
+  # refuses new resources, which fails volume creation and machine launch alike, so
+  # changing it here means changing it in the four configs too.
+  FLY_REGION: fra
   # The Fly organisation apps are created in. "personal" is the default org every
   # account has; override here if the deployment moves to a shared one.
   FLY_ORG: personal

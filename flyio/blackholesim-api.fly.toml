@@ -1,7 +1,7 @@
 # BlackHoleSim API — render queue, job endpoints, and the raytracer worker.
 
 app = "blackholesim-api"
-primary_region = "waw"
+primary_region = "fra"
 
 [build]
   # Both paths resolve relative to THIS FILE, not to the working directory. The
