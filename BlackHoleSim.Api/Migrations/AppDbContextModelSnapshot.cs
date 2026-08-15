@@ -17,7 +17,7 @@ namespace BlackHoleSim.Api.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "9.0.4")
+                .HasAnnotation("ProductVersion", "9.0.18")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -37,6 +37,9 @@ namespace BlackHoleSim.Api.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
 
+                    b.Property<string>("OwnerId")
+                        .HasColumnType("text");
+
                     b.Property<byte[]>("Png")
                         .HasColumnType("bytea");
 
@@ -52,6 +55,8 @@ namespace BlackHoleSim.Api.Migrations
                     b.HasIndex("CreatedAt");
 
                     b.HasIndex("Status");
+
+                    b.HasIndex("OwnerId", "CreatedAt");
 
                     b.ToTable("RenderJobs");
                 });
@@ -91,7 +96,9 @@ namespace BlackHoleSim.Api.Migrations
 
                             b1.ToTable("RenderJobs");
 
-                            b1.ToJson("Parameters");
+                            b1
+                                .ToJson("Parameters")
+                                .HasColumnType("jsonb");
 
                             b1.WithOwner()
                                 .HasForeignKey("RenderJobEntityId");

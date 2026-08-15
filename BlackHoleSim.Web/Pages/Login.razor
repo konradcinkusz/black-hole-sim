@@ -1,0 +1,78 @@
+@page "/login"
+@layout MainLayout
+@attribute [AllowAnonymous]
+
+<PageTitle>Sign in — BlackHoleSim</PageTitle>
+
+<h1>Sign in</h1>
+<p class="subtitle">Renders are private to your account. Sign in to submit one, or create an account.</p>
+
+<div class="card">
+    <EditForm Model="@_form" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+
+        <div class="form-group">
+            <label>Email</label>
+            <InputText @bind-Value="_form.Email" class="form-control" autocomplete="username" />
+            <ValidationMessage For="() => _form.Email" />
+        </div>
+
+        <div class="form-group">
+            <label>Password</label>
+            <InputText @bind-Value="_form.Password" type="password" class="form-control"
+                       autocomplete="current-password" />
+            <ValidationMessage For="() => _form.Password" />
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn-primary" disabled="@_busy">
+                @(_busy ? "Signing in…" : "Sign in")
+            </button>
+            <a href="register" class="btn-secondary">Create an account</a>
+        </div>
+    </EditForm>
+</div>
+
+@if (_error is not null)
+{
+    <div class="alert-error">@_error</div>
+}
+
+@code {
+    [Inject] AuthSession Session { get; set; } = default!;
+    [Inject] NavigationManager Navigation { get; set; } = default!;
+
+    [SupplyParameterFromQuery] private string? ReturnUrl { get; set; }
+
+    private readonly CredentialsForm _form = new();
+    private bool _busy;
+    private string? _error;
+
+    private async Task SubmitAsync()
+    {
+        _busy  = true;
+        _error = null;
+
+        var result = await Session.SignInAsync(_form.Email, _form.Password);
+
+        _busy = false;
+
+        if (result.Succeeded)
+        {
+            Navigation.NavigateTo(SafeReturnUrl());
+            return;
+        }
+
+        _error = result.Error ?? "Sign-in failed.";
+    }
+
+    // Only ever navigate to a path inside this app. returnUrl arrives from the address bar, so
+    // taking it at face value would let a crafted link bounce someone straight off the site
+    // after a successful sign-in — with their session freshly established.
+    private string SafeReturnUrl()
+        => string.IsNullOrWhiteSpace(ReturnUrl)
+        || ReturnUrl.StartsWith("//", StringComparison.Ordinal)
+        || ReturnUrl.Contains("://", StringComparison.Ordinal)
+            ? ""
+            : ReturnUrl.TrimStart('/');
+}

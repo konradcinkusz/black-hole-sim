@@ -1,0 +1,85 @@
+# BlackHoleSim API — render queue, job endpoints, and the raytracer worker.
+
+app = "blackholesim-api"
+primary_region = "fra"
+
+[build]
+  # Both paths resolve relative to THIS FILE, not to the working directory. The
+  # Dockerfile does `COPY BlackHoleSim.Shared/...`, so it needs the repository root
+  # as its context; without `context` declared, the build would work from the repo
+  # root and break in CI (or the reverse).
+  dockerfile = "../BlackHoleSim.Api/Dockerfile"
+  context = ".."
+
+[env]
+  ASPNETCORE_ENVIRONMENT = "Production"
+  # Must equal internal_port below, and binds all interfaces — a process on
+  # localhost is unreachable from the proxy.
+  ASPNETCORE_URLS = "http://+:8080"
+  # The frontend is a separate app with its own hostname, and the browser calls this
+  # API directly, so its origin has to be allowed explicitly.
+  Cors__AllowedOrigins__0 = "https://blackholesim-web.fly.dev"
+
+  # Where the signing keys are discovered. This service holds no key material: it fetches
+  # the identity service's public keys from its JWKS and can verify tokens but never issue
+  # one.
+  #
+  # The public hostname, not blackholesim-auth.internal, and deliberately. The identity
+  # service scales to zero, and Fly only auto-starts a stopped machine for traffic arriving
+  # through its proxy — a request to .internal reaches a machine that is not running and
+  # simply fails. Key discovery would then work only while something else happened to have
+  # woken the app, which is the kind of dependency that holds until the first quiet night.
+  # The document being fetched is a set of public keys, so the round trip costs nothing in
+  # confidentiality, and going over HTTPS means the metadata fetch is authenticated too.
+  Auth__Authority = "https://blackholesim-auth.fly.dev"
+  # Must match the identity service's Jwt__Issuer / Jwt__Audience exactly.
+  Auth__Issuer = "BlackHoleSim"
+  Auth__Audience = "BlackHoleSim"
+
+  # Telemetry is instrumented (BlackHoleSim.ServiceDefaults) but has nowhere to go
+  # here yet: no collector is deployed, and the exporter is only registered when this
+  # variable is set, so leaving it unset means traces and metrics are simply not
+  # emitted rather than retried forever against an address nobody is listening on.
+  # Point it at a collector to turn telemetry on; nothing in the image changes.
+  #   OTEL_EXPORTER_OTLP_ENDPOINT = "https://<collector>:4317"
+  # Locally the Aspire AppHost sets this automatically, which is what puts traces in
+  # its dashboard.
+
+# ConnectionStrings__Default is a secret (it carries the database password) and is
+# set by the deploy workflow. See SECRETS.md.
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+
+  # Not 0, and the reason is not a synchronous caller: the render worker does its
+  # work *between* requests. A machine stopped for idleness mid-render abandons a
+  # job that has no inbound traffic to keep it alive (RenderWorker recovers it on
+  # the next boot, but only once something else wakes the app). One machine stays
+  # up so a submitted render actually finishes. The cost of the alternative is
+  # spelled out in INFRASTRUCTURE-ANALYSIS.md.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+  [[http_service.checks]]
+    # Readiness, not liveness: this goes red until migrations have been applied, so
+    # a deploy is not called successful before the schema is usable.
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    # Covers cold start plus first-boot migration, which now runs after the listener
+    # is up and retries while Postgres is still coming up.
+    grace_period = "90s"
+
+[[vm]]
+  # A raytracer is CPU-bound; this is the knob that moves render time. Memory is
+  # sized for the largest allowed render (1920×1080 RGB24 plus PNG encoding), not
+  # for the request volume.
+  size = "shared-cpu-2x"
+  memory = "1gb"

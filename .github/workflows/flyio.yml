@@ -1,0 +1,519 @@
+# Tag-driven deploy to Fly.io.
+#
+#   push tag v*
+#     ├── test            build + unit tests
+#     ├── detect-changes  diff vs the previous tag → per-service flags
+#     │                   plus: a service whose Fly app is missing is always selected
+#     ├── build (matrix)  one image per changed service → registry.fly.io
+#     └── deploy          postgres → auth → api → web, in that order
+#
+# A deploy is an act, so it is triggered by a tag rather than by a branch push.
+# workflow_dispatch is here for re-running a release without cutting a new tag.
+name: Deploy to Fly.io
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: "Deploy every service regardless of what changed"
+        type: boolean
+        default: false
+
+concurrency:
+  group: flyio-deploy
+  cancel-in-progress: false
+
+env:
+  APP_POSTGRES: blackholesim-postgres
+  APP_AUTH: blackholesim-auth
+  APP_API: blackholesim-api
+  APP_WEB: blackholesim-web
+  # Must match `primary_region` in every flyio/*.fly.toml — this variable places the
+  # Postgres volume, and a volume in one region with the machine pinned to another is
+  # a deploy that cannot schedule. Fly retires regions: `waw` was deprecated and now
+  # refuses new resources, which fails volume creation and machine launch alike, so
+  # changing it here means changing it in the four configs too.
+  FLY_REGION: fra
+  # The Fly organisation apps are created in. "personal" is the default org every
+  # account has; override here if the deployment moves to a shared one.
+  FLY_ORG: personal
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "9.0.x"
+
+      - run: dotnet restore BlackHoleSim.sln
+      - run: dotnet build BlackHoleSim.sln -c Release --no-restore
+      - run: dotnet test BlackHoleSim.sln -c Release --no-build
+
+  # ────────────────────────────────────────────────────────────────────────────
+  detect-changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    # Needed for FLY_API_TOKEN: the "is this app missing" probe below calls the Fly
+    # API, and environment secrets only reach jobs that declare the environment.
+    environment: fly
+    outputs:
+      postgres: ${{ steps.detect.outputs.postgres }}
+      auth: ${{ steps.detect.outputs.auth }}
+      api: ${{ steps.detect.outputs.api }}
+      web: ${{ steps.detect.outputs.web }}
+      matrix: ${{ steps.detect.outputs.matrix }}
+      any_service: ${{ steps.detect.outputs.any_service }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Detect
+        id: detect
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FORCE_ALL: ${{ inputs.force_all || 'false' }}
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+
+          # Compare against the PREVIOUS TAG, not the previous commit: a release is
+          # the unit of deployment, and several commits land between two of them.
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -z "$PREV" ]; then
+            echo "No previous tag — treating everything as changed."
+            CHANGED=""
+            FIRST_RELEASE=true
+          else
+            echo "Diffing ${PREV}..${TAG}"
+            CHANGED="$(git diff --name-only "${PREV}" "${TAG}")"
+            FIRST_RELEASE=false
+          fi
+
+          # An app that does not exist yet is always selected. This one rule is what
+          # lets a cold Fly organisation come up from a single tag with no manual
+          # `fly launch`, and what rescues the deployment after a destroy run.
+          app_missing() {
+            ! flyctl apps list --json \
+              | jq -e --arg a "$1" '.[] | select((.Name // .name) == $a)' >/dev/null
+          }
+
+          matches() {
+            [ -n "$CHANGED" ] && echo "$CHANGED" | grep -qE "$1"
+          }
+
+          # Paths that invalidate a service's image. Shared, Core and ServiceDefaults
+          # all compile into the API image, so a change to any of them rebuilds it;
+          # Shared also compiles into the Web bundle. Directory.Build.props affects
+          # every compilation.
+          API_PATHS='^(BlackHoleSim\.Api/|BlackHoleSim\.Core/|BlackHoleSim\.Shared/|BlackHoleSim\.ServiceDefaults/|Directory\.Build\.props|\.dockerignore|flyio/blackholesim-api\.fly\.toml)'
+          WEB_PATHS='^(BlackHoleSim\.Web/|BlackHoleSim\.Shared/|Directory\.Build\.props|\.dockerignore|flyio/blackholesim-web\.fly\.toml)'
+          # Gated separately and much more tightly: redeploying Postgres restarts it,
+          # so it must not happen on every tag.
+          PG_PATHS='^flyio/blackholesim-postgres\.fly\.toml'
+          # Nothing in this repository builds the identity service — it is deployed from a
+          # pinned upstream image — so the only thing that can change it is its own config,
+          # which is also where the image tag lives.
+          AUTH_PATHS='^flyio/blackholesim-auth\.fly\.toml'
+
+          decide() {
+            local name="$1" pattern="$2" app="$3"
+            if [ "$FORCE_ALL" = "true" ] || [ "$FIRST_RELEASE" = "true" ]; then
+              echo "true"; return
+            fi
+            if matches "$pattern"; then echo "true"; return; fi
+            if app_missing "$app"; then
+              echo "true"; return
+            fi
+            echo "false"
+          }
+
+          AUTH="$(decide auth "$AUTH_PATHS" "${{ env.APP_AUTH }}")"
+          API="$(decide api "$API_PATHS" "${{ env.APP_API }}")"
+          WEB="$(decide web "$WEB_PATHS" "${{ env.APP_WEB }}")"
+          PG="$(decide postgres "$PG_PATHS" "${{ env.APP_POSTGRES }}")"
+
+          {
+            echo "api=$API"
+            echo "web=$WEB"
+            echo "postgres=$PG"
+            echo "auth=$AUTH"
+          } >> "$GITHUB_OUTPUT"
+
+          # Build matrix over the services that produce an image (Postgres uses a
+          # published image and is never built here).
+          # if-blocks rather than `[ … ] && ENTRIES=…`: under `set -e` a failing test
+          # in a top-level && list exits the script, which would silently produce an
+          # empty matrix whenever the first service was unchanged.
+          ENTRIES=""
+          if [ "$API" = "true" ]; then
+            ENTRIES="${ENTRIES}{\"service\":\"api\",\"app\":\"${{ env.APP_API }}\",\"dockerfile\":\"BlackHoleSim.Api/Dockerfile\"},"
+          fi
+          if [ "$WEB" = "true" ]; then
+            ENTRIES="${ENTRIES}{\"service\":\"web\",\"app\":\"${{ env.APP_WEB }}\",\"dockerfile\":\"BlackHoleSim.Web/Dockerfile\"},"
+          fi
+          ENTRIES="${ENTRIES%,}"
+
+          echo "matrix={\"include\":[${ENTRIES}]}" >> "$GITHUB_OUTPUT"
+          if [ -n "$ENTRIES" ]; then
+            echo "any_service=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_service=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "postgres=$PG  auth=$AUTH  api=$API  web=$WEB"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # Build each image exactly once and push it to the Fly registry. Every deploy
+  # step below references the result with `flyctl deploy --image` — no deploy step
+  # ever builds, and no source is built twice for two targets.
+  build:
+    name: Build ${{ matrix.service }}
+    needs: [test, detect-changes]
+    if: needs.detect-changes.outputs.any_service == 'true'
+    runs-on: ubuntu-latest
+    environment: fly
+    strategy:
+      # One broken image must not cancel the others mid-push.
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Ensure the Fly app exists
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          APP="${{ matrix.app }}"
+          if flyctl apps list --json | jq -e --arg a "$APP" '.[] | select((.Name // .name) == $a)' >/dev/null; then
+            echo "App $APP already exists."
+          else
+            flyctl apps create "$APP" --org "${FLY_ORG:-personal}" --yes
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Authenticate to the Fly registry
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl auth docker
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: registry.fly.io/${{ matrix.app }}:${{ github.ref_name }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,scope=${{ matrix.service }},mode=max
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-postgres:
+    name: Deploy Postgres
+    needs: [test, detect-changes]
+    if: >-
+      ${{ always() && !cancelled()
+          && needs.test.result == 'success'
+          && needs.detect-changes.outputs.postgres == 'true' }}
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Require the root secret
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          # A database that boots with no password set is not a degraded feature,
+          # it is a broken deployment that will look healthy. Fail loudly instead.
+          if [ -z "${POSTGRES_PASSWORD}" ]; then
+            echo "::error::POSTGRES_PASSWORD is not set in the 'fly' environment. See flyio/SECRETS.md."
+            exit 1
+          fi
+
+      - name: Ensure the app and volume exist
+        run: |
+          set -euo pipefail
+          APP="${{ env.APP_POSTGRES }}"
+
+          if ! flyctl apps list --json | jq -e --arg a "$APP" '.[] | select((.Name // .name) == $a)' >/dev/null; then
+            flyctl apps create "$APP" --org "${FLY_ORG:-personal}" --yes
+          fi
+
+          # Idempotent, and never more than one: a second volume would be a second
+          # empty database, not a replica.
+          COUNT="$(flyctl volumes list -a "$APP" --json | jq '[.[] | select((.Name // .name) == "blackholesim_pgdata")] | length')"
+          if [ "$COUNT" -eq 0 ]; then
+            flyctl volumes create blackholesim_pgdata \
+              --app "$APP" --region "${{ env.FLY_REGION }}" --size 3 --yes
+          else
+            echo "Volume already exists ($COUNT)."
+          fi
+
+      - name: Set secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          # --stage holds the change until the deploy below, so one release does not
+          # restart the app twice.
+          flyctl secrets set -a "${{ env.APP_POSTGRES }}" \
+            "POSTGRES_PASSWORD=${POSTGRES_PASSWORD}" --stage
+
+      - name: Deploy
+        run: |
+          # --ha=false: an app with a volume must never be given a second machine.
+          # No smoke check: this app has no public listener, so there is no HTTP
+          # response for flyctl to wait on.
+          flyctl deploy \
+            --config flyio/blackholesim-postgres.fly.toml \
+            --app "${{ env.APP_POSTGRES }}" \
+            --ha=false \
+            --smoke-checks=false \
+            --wait-timeout 300
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # No build stage: this app runs a pinned upstream image, so there is nothing here to
+  # compile and it is absent from the build matrix by design.
+  deploy-auth:
+    name: Deploy identity service
+    needs: [test, detect-changes, deploy-postgres]
+    if: >-
+      ${{ always() && !cancelled()
+          && needs.test.result == 'success'
+          && needs.detect-changes.outputs.auth == 'true'
+          && (needs.deploy-postgres.result == 'success' || needs.deploy-postgres.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Every other app is created as a side effect of something else: Postgres by its
+      # own volume step, the API and Web by the build job, which has to create an app
+      # before it can push to `registry.fly.io/<app>`. This one builds nothing, so it
+      # rides on neither — and `flyctl secrets set` below is the first command to name
+      # it, which fails with "Could not find App" rather than creating it.
+      - name: Ensure the app exists
+        run: |
+          set -euo pipefail
+          APP="${{ env.APP_AUTH }}"
+          if flyctl apps list --json | jq -e --arg a "$APP" '.[] | select((.Name // .name) == $a)' >/dev/null; then
+            echo "App $APP already exists."
+          else
+            flyctl apps create "$APP" --org "${FLY_ORG:-personal}" --yes
+          fi
+
+      - name: Set secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SIGNING_KEY:   ${{ secrets.JWT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${POSTGRES_PASSWORD}" ]; then
+            echo "::error::POSTGRES_PASSWORD is not set in the 'fly' environment. See flyio/SECRETS.md."
+            exit 1
+          fi
+
+          # Without a keypair the service silently falls back to HS256 and publishes an
+          # empty key set. Nothing would look broken until the API rejected every token,
+          # so fail here instead.
+          if [ -z "${JWT_SIGNING_KEY}" ]; then
+            echo "::error::JWT_SIGNING_KEY is not set in the 'fly' environment. See flyio/SECRETS.md."
+            exit 1
+          fi
+
+          # Its own logical database on the shared instance, created on first start.
+          CONN="Host=${{ env.APP_POSTGRES }}.internal;Port=5432;Database=authservice;Username=blackhole;Password=${POSTGRES_PASSWORD}"
+
+          # --stage holds both until the deploy below, so one release does not restart the
+          # app twice.
+          flyctl secrets set -a "${{ env.APP_AUTH }}" \
+            "ConnectionStrings__DefaultConnection=${CONN}" \
+            "Jwt__PrivateKeyPem=${JWT_SIGNING_KEY}" --stage
+
+      - name: Deploy
+        run: |
+          # --image is not passed: unlike the services this repo builds, the image to run
+          # is declared in the config's [build] block as a pinned upstream release.
+          flyctl deploy \
+            --config flyio/blackholesim-auth.fly.toml \
+            --app "${{ env.APP_AUTH }}" \
+            --wait-timeout 300
+
+      - name: Verify it publishes a usable key set
+        run: |
+          set -euo pipefail
+          # The health check confirms the app answers. It cannot confirm the thing that
+          # breaks silently: that the keypair was picked up. Under HS256 the JWKS is a
+          # valid document with no keys in it, the deploy looks perfectly green, and every
+          # token the API sees is then rejected for want of a signing key to check it with.
+          URL="https://${{ env.APP_AUTH }}.fly.dev/.well-known/jwks.json"
+          KEYS="$(curl -fsSL "$URL" | jq '.keys | length')"
+          if [ "${KEYS:-0}" -lt 1 ]; then
+            echo "::error::${URL} published no keys — the service is signing with HS256. Check JWT_SIGNING_KEY and the image tag in flyio/blackholesim-auth.fly.toml."
+            exit 1
+          fi
+          echo "Published ${KEYS} signing key(s)."
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-api:
+    name: Deploy API
+    needs: [test, detect-changes, build, deploy-postgres, deploy-auth]
+    # "my upstream succeeded OR was skipped" — without the `|| skipped`, an unchanged
+    # Postgres would block every service behind it.
+    if: >-
+      ${{ always() && !cancelled()
+          && needs.test.result == 'success'
+          && needs.detect-changes.outputs.api == 'true'
+          && needs.build.result == 'success'
+          && (needs.deploy-postgres.result == 'success' || needs.deploy-postgres.result == 'skipped')
+          && (needs.deploy-auth.result == 'success' || needs.deploy-auth.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Set secrets
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${POSTGRES_PASSWORD}" ]; then
+            echo "::error::POSTGRES_PASSWORD is not set in the 'fly' environment. See flyio/SECRETS.md."
+            exit 1
+          fi
+
+          # Assembled from the one root secret plus a known host, rather than stored
+          # per service — a connection string kept separately from the password it
+          # contains is one that disagrees after the first rotation.
+          CONN="Host=${{ env.APP_POSTGRES }}.internal;Port=5432;Database=blackholesim;Username=blackhole;Password=${POSTGRES_PASSWORD}"
+          flyctl secrets set -a "${{ env.APP_API }}" "ConnectionStrings__Default=${CONN}" --stage
+
+      - name: Deploy
+        run: |
+          flyctl deploy \
+            --config flyio/blackholesim-api.fly.toml \
+            --app "${{ env.APP_API }}" \
+            --image "registry.fly.io/${{ env.APP_API }}:${{ github.ref_name }}" \
+            --wait-timeout 300
+
+      - name: Verify the schema is actually usable
+        run: |
+          set -euo pipefail
+          # The platform health check confirms the app answers. It cannot confirm the
+          # thing that breaks silently here: that migrations completed. /health is
+          # readiness and goes red while the schema is missing, so poll it until it
+          # is green rather than trusting "it started".
+          URL="https://${{ env.APP_API }}.fly.dev/health"
+          for attempt in $(seq 1 30); do
+            CODE="$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)"
+            if [ "$CODE" = "200" ]; then
+              echo "Schema ready after ${attempt} attempt(s)."
+              exit 0
+            fi
+            echo "attempt ${attempt}: /health returned ${CODE}"
+            sleep 10
+          done
+          echo "::error::API never reported ready. Check: flyctl logs -a ${{ env.APP_API }}"
+          exit 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  deploy-web:
+    name: Deploy Web
+    needs: [test, detect-changes, build, deploy-api]
+    if: >-
+      ${{ always() && !cancelled()
+          && needs.test.result == 'success'
+          && needs.detect-changes.outputs.web == 'true'
+          && needs.build.result == 'success'
+          && (needs.deploy-api.result == 'success' || needs.deploy-api.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: |
+          flyctl deploy \
+            --config flyio/blackholesim-web.fly.toml \
+            --app "${{ env.APP_WEB }}" \
+            --image "registry.fly.io/${{ env.APP_WEB }}:${{ github.ref_name }}" \
+            --wait-timeout 300
+
+      - name: Verify the runtime config was written
+        run: |
+          set -euo pipefail
+          # What the health check cannot see: /healthz passes whether or not the
+          # entrypoint wrote a usable API address, and a frontend pointed at the
+          # wrong API is broken in a way that looks perfectly healthy.
+          CONFIG="$(curl -fsSL "https://${{ env.APP_WEB }}.fly.dev/appsettings.json")"
+          echo "$CONFIG"
+          ACTUAL="$(echo "$CONFIG" | jq -r '.ApiBaseUrl')"
+          EXPECTED="https://${{ env.APP_API }}.fly.dev"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Frontend is configured for '${ACTUAL}', expected '${EXPECTED}'."
+            exit 1
+          fi
+          echo "Frontend points at ${ACTUAL}."
+
+  # ────────────────────────────────────────────────────────────────────────────
+  summary:
+    name: Summary
+    needs: [detect-changes, deploy-postgres, deploy-auth, deploy-api, deploy-web]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write summary
+        run: |
+          {
+            echo "## Fly.io deploy — \`${GITHUB_REF_NAME}\`"
+            echo
+            echo "| Service | Selected | Result |"
+            echo "|---|---|---|"
+            echo "| postgres | ${{ needs.detect-changes.outputs.postgres }} | ${{ needs.deploy-postgres.result }} |"
+            echo "| auth | ${{ needs.detect-changes.outputs.auth }} | ${{ needs.deploy-auth.result }} |"
+            echo "| api | ${{ needs.detect-changes.outputs.api }} | ${{ needs.deploy-api.result }} |"
+            echo "| web | ${{ needs.detect-changes.outputs.web }} | ${{ needs.deploy-web.result }} |"
+            echo
+            echo "Frontend: https://${{ env.APP_WEB }}.fly.dev"
+            echo "API: https://${{ env.APP_API }}.fly.dev"
+            echo "Identity: https://${{ env.APP_AUTH }}.fly.dev"
+          } >> "$GITHUB_STEP_SUMMARY"

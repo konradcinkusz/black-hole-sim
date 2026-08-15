@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackHoleSim.Core", "BlackH
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackHoleSim.Shared", "BlackHoleSim.Shared\BlackHoleSim.Shared.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackHoleSim.ServiceDefaults", "BlackHoleSim.ServiceDefaults\BlackHoleSim.ServiceDefaults.csproj", "{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackHoleSim.Api", "BlackHoleSim.Api\BlackHoleSim.Api.csproj", "{B2C3D4E5-F6A7-8901-BCDE-F12345678901}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackHoleSim.Web", "BlackHoleSim.Web\BlackHoleSim.Web.csproj", "{C3D4E5F6-A7B8-9012-CDEF-123456789012}"
@@ -74,6 +76,18 @@ Global
 		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x64.Build.0 = Release|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x86.ActiveCfg = Release|Any CPU
 		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|x86.Build.0 = Release|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Debug|x64.Build.0 = Debug|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Debug|x86.Build.0 = Debug|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Release|x64.ActiveCfg = Release|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Release|x64.Build.0 = Release|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Release|x86.ActiveCfg = Release|Any CPU
+		{E7A9B4C2-5D31-4F86-9A0B-7C2E4D8F1A63}.Release|x86.Build.0 = Release|Any CPU
 		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B2C3D4E5-F6A7-8901-BCDE-F12345678901}.Debug|x64.ActiveCfg = Debug|Any CPU

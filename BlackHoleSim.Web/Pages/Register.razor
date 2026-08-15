@@ -1,0 +1,87 @@
+@page "/register"
+@layout MainLayout
+@attribute [AllowAnonymous]
+
+<PageTitle>Create an account — BlackHoleSim</PageTitle>
+
+<h1>Create an account</h1>
+<p class="subtitle">Accounts live in this deployment's own identity service. Renders you submit are visible only to you.</p>
+
+<div class="card">
+    <EditForm Model="@_form" OnValidSubmit="SubmitAsync">
+        <DataAnnotationsValidator />
+
+        <div class="form-group">
+            <label>Email</label>
+            <InputText @bind-Value="_form.Email" class="form-control" autocomplete="username" />
+            <ValidationMessage For="() => _form.Email" />
+        </div>
+
+        <div class="form-group">
+            <label>Password</label>
+            <InputText @bind-Value="_form.Password" type="password" class="form-control"
+                       autocomplete="new-password" />
+            <span class="hint">at least 8 characters</span>
+            <ValidationMessage For="() => _form.Password" />
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn-primary" disabled="@_busy">
+                @(_busy ? "Creating…" : "Create account")
+            </button>
+            <a href="login" class="btn-secondary">I already have one</a>
+        </div>
+    </EditForm>
+</div>
+
+@if (_pendingVerification)
+{
+    <div class="card">
+        <p>
+            Your account was created. Confirm your email address using the link that was sent
+            to <strong>@_form.Email</strong>, then <a href="login">sign in</a>.
+        </p>
+    </div>
+}
+
+@if (_error is not null)
+{
+    <div class="alert-error">@_error</div>
+}
+
+@code {
+    [Inject] AuthSession Session { get; set; } = default!;
+    [Inject] NavigationManager Navigation { get; set; } = default!;
+
+    private readonly CredentialsForm _form = new();
+    private bool _busy;
+    private bool _pendingVerification;
+    private string? _error;
+
+    private async Task SubmitAsync()
+    {
+        _busy                = true;
+        _error               = null;
+        _pendingVerification = false;
+
+        var result = await Session.RegisterAsync(_form.Email, _form.Password);
+
+        _busy = false;
+
+        if (result.Succeeded)
+        {
+            Navigation.NavigateTo("");
+            return;
+        }
+
+        // Not an error: where the deployment has email delivery configured, an account must
+        // confirm its address before it can sign in, and registration answers 202 with no token.
+        if (result.PendingVerification)
+        {
+            _pendingVerification = true;
+            return;
+        }
+
+        _error = result.Error ?? "Registration failed.";
+    }
+}

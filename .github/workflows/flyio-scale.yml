@@ -1,0 +1,89 @@
+# Manual scaling for the Fly.io deployment.
+#
+# Note the distinction this workflow exists to make operable: scaling a stateless
+# app to *zero machines* is not the same as `min_machines_running = 0`. The latter
+# leaves a stopped machine the proxy can start on the next request; the former
+# leaves nothing to start, and the app is simply down until someone scales it back.
+name: Fly.io scale
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "What to do"
+        type: choice
+        required: true
+        options:
+          - normalise      # back to the configured baseline
+          - start-all      # start every stopped machine
+          - scale-out      # two machines on the request path
+          - wind-down      # zero machines for the stateless apps
+        default: normalise
+
+concurrency:
+  group: flyio-deploy
+  cancel-in-progress: false
+
+env:
+  APP_POSTGRES: blackholesim-postgres
+  APP_AUTH: blackholesim-auth
+  APP_API: blackholesim-api
+  APP_WEB: blackholesim-web
+  # Keep in step with flyio.yml and every flyio/*.fly.toml: scaling into a region the
+  # apps were not deployed to creates machines somewhere new rather than adjusting the
+  # ones that exist.
+  FLY_REGION: fra
+
+jobs:
+  scale:
+    name: ${{ inputs.action }}
+    runs-on: ubuntu-latest
+    environment: fly
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Apply
+        run: |
+          set -euo pipefail
+
+          # blackholesim-postgres is absent from every branch below, deliberately.
+          # It has a volume, and a volume is a local disk pinned to one machine —
+          # `flyctl scale count 2` there creates a second, empty database rather
+          # than a replica. It is scaled by hand or not at all.
+
+          case "${{ inputs.action }}" in
+            normalise)
+              flyctl scale count 1 --app "${{ env.APP_API }}" --region "${{ env.FLY_REGION }}" --yes
+              flyctl scale count 1 --app "${{ env.APP_WEB }}" --region "${{ env.FLY_REGION }}" --yes
+              flyctl scale count 1 --app "${{ env.APP_AUTH }}" --region "${{ env.FLY_REGION }}" --yes
+              ;;
+            start-all)
+              flyctl machine start --app "${{ env.APP_API }}" || true
+              flyctl machine start --app "${{ env.APP_WEB }}" || true
+              flyctl machine start --app "${{ env.APP_AUTH }}" || true
+              flyctl machine start --app "${{ env.APP_POSTGRES }}" || true
+              ;;
+            scale-out)
+              # The API only: the frontend is static and the proxy already fans out
+              # across whatever machines exist.
+              flyctl scale count 2 --app "${{ env.APP_API }}" --region "${{ env.FLY_REGION }}" --yes
+              ;;
+            wind-down)
+              flyctl scale count 0 --app "${{ env.APP_API }}" --yes
+              flyctl scale count 0 --app "${{ env.APP_WEB }}" --yes
+              # Nobody can sign in with this at zero, which is the point of a wind-down.
+              flyctl scale count 0 --app "${{ env.APP_AUTH }}" --yes
+              echo "::notice::Stateless apps are at zero machines. Postgres is still running and still billing for its volume; use flyio-destroy to remove it."
+              ;;
+          esac
+
+      - name: Report
+        if: always()
+        run: |
+          for app in "${{ env.APP_POSTGRES }}" "${{ env.APP_AUTH }}" "${{ env.APP_API }}" "${{ env.APP_WEB }}"; do
+            echo "── $app"
+            flyctl machine list --app "$app" || echo "  (app not found)"
+          done

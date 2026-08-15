@@ -8,12 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.EntityFrameworkCore"                                Version="9.0.4" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design"                         Version="9.0.4">
+    <PackageReference Include="Microsoft.EntityFrameworkCore"                                Version="9.0.18" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design"                         Version="9.0.18">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL"                        Version="9.0.4" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"                Version="9.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi"                                 Version="9.0.4" />
     <PackageReference Include="Swashbuckle.AspNetCore"                                       Version="7.3.1" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="9.0.4" />
@@ -22,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BlackHoleSim.Core\BlackHoleSim.Core.csproj" />
     <ProjectReference Include="..\BlackHoleSim.Shared\BlackHoleSim.Shared.csproj" />
+    <ProjectReference Include="..\BlackHoleSim.ServiceDefaults\BlackHoleSim.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,65 @@
+# Docker only reads a .dockerignore from the root of the build context. Both images
+# build with `context: .` (see docker-compose.yml and the CI workflows), so the
+# per-project BlackHoleSim.Api/.dockerignore and BlackHoleSim.Web/.dockerignore were
+# never consulted — every build was shipping .git, docs/ and the sample renders to
+# the daemon. This file is the one that actually applies.
+#
+# Exclusion-based: deny the noise, keep everything else, so a new project does not
+# have to be remembered here to be buildable.
+
+# ── Build output ──────────────────────────────────────────────────────────────
+**/bin
+**/obj
+**/out
+**/publish
+**/TestResults
+
+# ── Version control and CI ────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+.github
+
+# ── Editor / IDE ──────────────────────────────────────────────────────────────
+**/.vs
+**/.vscode
+**/.idea
+**/*.user
+**/*.suo
+
+# ── Local secrets and environment ─────────────────────────────────────────────
+# Never in an image layer, and never in the context either — the daemon receives
+# the context before any instruction runs.
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+**/secrets.json
+# The identity service's signing keypair. It is bind-mounted into that container at run
+# time and has no business in any build context.
+secrets/
+*.pem
+
+# ── Documentation and media ───────────────────────────────────────────────────
+docs
+*.md
+!README.md
+
+# Render output. Deliberately not a blanket **/*.png — the Web project's wwwroot is
+# a legitimate home for image assets, and a global rule there would silently drop
+# them from the bundle.
+**/*.ppm
+/*.png
+
+# ── Deployment configuration ──────────────────────────────────────────────────
+# Read by flyctl on the host, not needed inside any image.
+flyio
+scripts
+docker-compose*.yml
+
+# ── Projects no image needs ───────────────────────────────────────────────────
+# The API image builds Shared + Core + Api; the Web image builds Shared + Web.
+# Neither compiles the tests, the console renderer or the Aspire AppHost.
+BlackHoleSim.Tests
+BlackHoleSim.ConsoleApp
+BlackHoleSim.AppHost

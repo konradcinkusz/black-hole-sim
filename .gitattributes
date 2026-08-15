@@ -1,63 +1,51 @@
-###############################################################################
-# Set default behavior to automatically normalize line endings.
-###############################################################################
+# Line endings and diff behaviour.
+#
+# This file used to be the stock Visual Studio template with every rule commented
+# out — decoration rather than configuration. These are the rules that are actually
+# in force.
+
+# Normalise to LF in the repository, check out native on Windows.
 * text=auto
 
-###############################################################################
-# Set default behavior for command prompt diff.
-#
-# This is need for earlier builds of msysgit that does not have it on by
-# default for csharp files.
-# Note: This is only used by command line
-###############################################################################
-#*.cs     diff=csharp
+# ── Source and configuration: always LF in the repo ──────────────────────────
+*.cs        text diff=csharp
+*.csproj    text
+*.sln       text eol=crlf
+*.props     text
+*.targets   text
+*.razor     text diff=html
+*.cshtml    text diff=html
+*.json      text
+*.yml       text
+*.yaml      text
+*.toml      text
+*.md        text diff=markdown
+*.css       text
+*.js        text
+*.html      text diff=html
 
-###############################################################################
-# Set the merge driver for project and solution files
-#
-# Merging from the command prompt will add diff markers to the files if there
-# are conflicts (Merging from VS is not affected by the settings below, in VS
-# the diff markers are never inserted). Diff markers may cause the following 
-# file extensions to fail to load in VS. An alternative would be to treat
-# these files as binary and thus will always conflict and require user
-# intervention with every merge. To do so, just uncomment the entries below
-###############################################################################
-#*.sln       merge=binary
-#*.csproj    merge=binary
-#*.vbproj    merge=binary
-#*.vcxproj   merge=binary
-#*.vcproj    merge=binary
-#*.dbproj    merge=binary
-#*.fsproj    merge=binary
-#*.lsproj    merge=binary
-#*.wixproj   merge=binary
-#*.modelproj merge=binary
-#*.sqlproj   merge=binary
-#*.wwaproj   merge=binary
+# ── Files whose line endings are not cosmetic ────────────────────────────────
+# A shell script that reaches a Linux container with CRLF fails with the famously
+# unhelpful "no such file or directory" — the interpreter path picks up the \r.
+# These two rules are the reason this file stopped being decoration.
+*.sh              text eol=lf
+Dockerfile        text eol=lf
+*.Dockerfile      text eol=lf
+.dockerignore     text eol=lf
+*.ps1             text eol=crlf
 
-###############################################################################
-# behavior for image files
-#
-# image files are treated as binary by default.
-###############################################################################
-#*.jpg   binary
-#*.png   binary
-#*.gif   binary
+# ── Binary: never normalised, never diffed as text ───────────────────────────
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.ppm       binary
+*.wasm      binary
+*.dll       binary
+*.pdb       binary
 
-###############################################################################
-# diff behavior for common document formats
-# 
-# Convert binary document formats to text before diffing them. This feature
-# is only available from the command line. Turn it on by uncommenting the 
-# entries below.
-###############################################################################
-#*.doc   diff=astextplain
-#*.DOC   diff=astextplain
-#*.docx  diff=astextplain
-#*.DOCX  diff=astextplain
-#*.dot   diff=astextplain
-#*.DOT   diff=astextplain
-#*.pdf   diff=astextplain
-#*.PDF   diff=astextplain
-#*.rtf   diff=astextplain
-#*.RTF   diff=astextplain
+# ── Generated: collapsed in pull request diffs ───────────────────────────────
+BlackHoleSim.Api/Migrations/** linguist-generated=true
+*.Designer.cs                  linguist-generated=true

@@ -1,3 +1,4 @@
+using BlackHoleSim.Api.Auth;
 using BlackHoleSim.Api.Data;
 using BlackHoleSim.Api.Jobs;
 using BlackHoleSim.Api.Mapping;
@@ -10,21 +11,33 @@ public static class JobsEndpoints
 {
     public static void MapJobsEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/jobs", ListJobsAsync)
-           .WithName("ListJobs")
-           .WithOpenApi();
+        // A render is private to the account that submitted it. Every handler below therefore
+        // filters on the caller's id rather than trusting the job id alone: a GUID is hard to
+        // guess, but "hard to guess" is not an access control, and the gallery used to hand
+        // every caller a paginated list of them.
+        //
+        // Someone else's job answers 404, not 403. 403 confirms the id names a real render and
+        // turns the list endpoint's old behaviour into an enumeration oracle; the caller cannot
+        // distinguish "not yours" from "not a job", which is the whole point.
+        var jobs = app.MapGroup("/api/jobs").RequireAuthorization();
 
-        app.MapGet("/api/jobs/{id:guid}", GetJobAsync)
-           .WithName("GetJob")
-           .WithOpenApi();
+        // "" rather than "/": a group pattern of "/" would register /api/jobs/ and leave the
+        // unslashed /api/jobs the client actually calls returning 404.
+        jobs.MapGet("", ListJobsAsync)
+            .WithName("ListJobs")
+            .WithOpenApi();
 
-        app.MapGet("/api/jobs/{id:guid}/image", GetJobImageAsync)
-           .WithName("GetJobImage")
-           .WithOpenApi();
+        jobs.MapGet("/{id:guid}", GetJobAsync)
+            .WithName("GetJob")
+            .WithOpenApi();
 
-        app.MapDelete("/api/jobs/{id:guid}", DeleteJobAsync)
-           .WithName("DeleteJob")
-           .WithOpenApi();
+        jobs.MapGet("/{id:guid}/image", GetJobImageAsync)
+            .WithName("GetJobImage")
+            .WithOpenApi();
+
+        jobs.MapDelete("/{id:guid}", DeleteJobAsync)
+            .WithName("DeleteJob")
+            .WithOpenApi();
     }
 
     private static async Task<IResult> ListJobsAsync(
@@ -36,7 +49,10 @@ public static class JobsEndpoints
         pageSize = Math.Clamp(pageSize, 1, 100);
         page     = Math.Max(1, page);
 
+        var ownerId = http.User.OwnerId();
+
         var jobs = await db.RenderJobs
+            .Where(j => j.OwnerId == ownerId)
             .OrderByDescending(j => j.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -50,7 +66,11 @@ public static class JobsEndpoints
         AppDbContext db,
         HttpContext http)
     {
-        var entity = await db.RenderJobs.FindAsync(id);
+        var ownerId = http.User.OwnerId();
+
+        var entity = await db.RenderJobs
+            .FirstOrDefaultAsync(j => j.Id == id && j.OwnerId == ownerId);
+
         return entity is null
             ? Results.NotFound()
             : Results.Ok(entity.ToDto(http.Request));
@@ -58,10 +78,13 @@ public static class JobsEndpoints
 
     private static async Task<IResult> GetJobImageAsync(
         Guid id,
-        AppDbContext db)
+        AppDbContext db,
+        HttpContext http)
     {
+        var ownerId = http.User.OwnerId();
+
         var entity = await db.RenderJobs
-            .Where(j => j.Id == id)
+            .Where(j => j.Id == id && j.OwnerId == ownerId)
             .Select(j => new { j.Status, j.Png })
             .FirstOrDefaultAsync();
 
@@ -75,9 +98,14 @@ public static class JobsEndpoints
     private static async Task<IResult> DeleteJobAsync(
         Guid id,
         AppDbContext db,
+        HttpContext http,
         JobCancellationRegistry cancelRegistry)
     {
-        var entity = await db.RenderJobs.FindAsync(id);
+        var ownerId = http.User.OwnerId();
+
+        var entity = await db.RenderJobs
+            .FirstOrDefaultAsync(j => j.Id == id && j.OwnerId == ownerId);
+
         if (entity is null) return Results.NotFound();
 
         // Cancel if currently running
