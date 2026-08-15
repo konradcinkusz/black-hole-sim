@@ -158,6 +158,34 @@ between requests), `blackholesim-api` (one machine always up, so a background re
 is not stopped mid-flight), and `blackholesim-postgres` (private network only, no
 public IP).
 
+The web app serves the bundle and is then out of the loop — the numbered calls all
+originate in the *browser*, cross-origin. Server-side there are exactly three edges:
+
+```mermaid
+flowchart TB
+  Browser["browser — the Blazor WASM app runs here"]
+
+  subgraph Fly["Fly.io · region fra · one private network"]
+    W["blackholesim-web\nnginx, serves the bundle\nscales to zero"]
+    A["blackholesim-auth\nauthservice (pinned image), signs RS256\nscales to zero"]
+    Api["blackholesim-api\nASP.NET Core + RenderWorker\none machine always up"]
+    Pg[("blackholesim-postgres\n.internal:5432 — no public IP\ndatabases: blackholesim, authservice")]
+  end
+
+  Browser -->|"1 — the app bundle + the api/auth URLs"| W
+  Browser -->|"2 — register / sign-in / token refresh"| A
+  Browser -->|"3 — /api/* with a Bearer token"| Api
+  Api -.->|"jwks.json — public keys, over the public hostname"| A
+  Api -->|"db blackholesim"| Pg
+  A -->|"db authservice"| Pg
+```
+
+The dashed arrow is the one to read twice: the API fetches the identity service's
+*public* keys over `https://blackholesim-auth.fly.dev`, not `.internal` — auth
+scales to zero, and only a request arriving through the Fly proxy can wake a
+stopped machine. Edge-by-edge reasoning lives in
+[`flyio/INFRASTRUCTURE-ANALYSIS.md`](flyio/INFRASTRUCTURE-ANALYSIS.md).
+
 Deploying is pushing a tag:
 
 ```bash
