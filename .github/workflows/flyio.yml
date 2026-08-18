@@ -208,7 +208,7 @@ jobs:
             flyctl apps create "$APP" --org "${FLY_ORG:-personal}" --yes
           fi
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - name: Authenticate to the Fly registry
         env:
